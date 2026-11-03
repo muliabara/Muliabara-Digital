@@ -230,7 +230,7 @@ export default function App() {
   useEffect(() => {
     // 1. Subscribe to realtime updates emitted by any device
     const unsubscribeData = realtimeSync.subscribe((payload) => {
-      if (Array.isArray(payload.records) && payload.records.length > 0) setP2hRecords(payload.records);
+      if (Array.isArray(payload.records)) setP2hRecords(payload.records);
       if (Array.isArray(payload.vehicles) && payload.vehicles.length > 0) setVehicles(payload.vehicles);
       if (Array.isArray(payload.notifications)) setNotifications(payload.notifications);
       if (Array.isArray(payload.users) && payload.users.length > 0) {
@@ -374,9 +374,9 @@ export default function App() {
 
     // Realtime sync across devices immediately after transaction
     realtimeSync.pushUpdate({
-      records: updatedRecords.length ? updatedRecords : [savedForm, ...p2hRecords],
+      records: [savedForm],
       vehicles: updatedVehicles.length ? updatedVehicles : vehicles,
-      notifications: [newNotif, ...notifications]
+      notifications: [newNotif]
     });
 
     setEditingForm(null);
@@ -385,13 +385,9 @@ export default function App() {
 
   // Handler: Update Record Only (Without changing navigation view)
   const handleUpdateRecordOnly = (savedForm: P2HFormRecord) => {
-    let updatedRecords: P2HFormRecord[] = [];
-    setP2hRecords(prev => {
-      updatedRecords = prev.map(r => (r.id === savedForm.id ? savedForm : r));
-      return updatedRecords;
-    });
+    setP2hRecords(prev => prev.map(r => (r.id === savedForm.id ? savedForm : r)));
     realtimeSync.pushUpdate({
-      records: updatedRecords.length ? updatedRecords : p2hRecords
+      records: [savedForm]
     });
   };
 
@@ -460,21 +456,12 @@ export default function App() {
 
   // Handler: Delete P2H Form
   const handleDeleteP2H = (recordId: string) => {
-    let updatedRecords: P2HFormRecord[] = [];
-    setP2hRecords(prev => {
-      updatedRecords = prev.filter(r => r.id !== recordId);
-      return updatedRecords;
-    });
-
-    let updatedNotifs: NotificationItem[] = [];
-    setNotifications(prev => {
-      updatedNotifs = prev.filter(n => n.formId !== recordId);
-      return updatedNotifs;
-    });
+    setP2hRecords(prev => prev.filter(r => r.id !== recordId));
+    setNotifications(prev => prev.filter(n => n.formId !== recordId));
 
     realtimeSync.pushUpdate({
-      records: updatedRecords,
-      notifications: updatedNotifs
+      action: 'delete_record',
+      targetId: recordId
     });
 
     playTriggerSound();
@@ -486,37 +473,25 @@ export default function App() {
     setNotifications([]);
     saveCompressed(STORAGE_KEYS.RECORDS, []);
     saveCompressed(STORAGE_KEYS.NOTIFICATIONS, []);
-    realtimeSync.pushUpdate({ records: [], notifications: [] });
+    realtimeSync.pushUpdate({ action: 'delete_all_records' });
     playTriggerSound();
   };
 
   // Handler: Add New Vehicle
   const handleAddVehicle = (newVeh: VehicleUnit) => {
-    let updated: VehicleUnit[] = [];
-    setVehicles(prev => {
-      updated = [...prev, newVeh];
-      return updated;
-    });
-    realtimeSync.pushUpdate({ vehicles: updated });
+    setVehicles(prev => [...prev, newVeh]);
+    realtimeSync.pushUpdate({ vehicles: [newVeh] });
     playTriggerSound();
   };
 
   const handleUpdateVehicle = (updatedVeh: VehicleUnit) => {
-    let updated: VehicleUnit[] = [];
-    setVehicles(prev => {
-      updated = prev.map(v => (v.id === updatedVeh.id ? updatedVeh : v));
-      return updated;
-    });
-    realtimeSync.pushUpdate({ vehicles: updated });
+    setVehicles(prev => prev.map(v => (v.id === updatedVeh.id ? updatedVeh : v)));
+    realtimeSync.pushUpdate({ vehicles: [updatedVeh] });
   };
 
   const handleDeleteVehicle = (unitId: string) => {
-    let updated: VehicleUnit[] = [];
-    setVehicles(prev => {
-      updated = prev.filter(v => v.id !== unitId);
-      return updated;
-    });
-    realtimeSync.pushUpdate({ vehicles: updated });
+    setVehicles(prev => prev.filter(v => v.id !== unitId));
+    realtimeSync.pushUpdate({ action: 'delete_vehicle', targetId: unitId });
   };
 
   // Handlers for User Management

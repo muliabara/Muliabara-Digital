@@ -13,6 +13,7 @@ import {
 } from '../data/checklistConfig';
 import { SignaturePadModal } from './SignaturePadModal';
 import { playTriggerSound, playSuccessChime } from '../utils/audio';
+import { compressImage } from '../utils/imageCompressor';
 import { 
   AlertTriangle, 
   CheckCircle2, 
@@ -176,14 +177,15 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   const [driverFindingNotes, setDriverFindingNotes] = useState<string>(initialForm?.driverFindingNotes || '');
   const [driverFindingPhotoUrl, setDriverFindingPhotoUrl] = useState<string | undefined>(initialForm?.driverFindingPhotoUrl);
 
-  const handleUploadFindingPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadFindingPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setDriverFindingPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, { maxWidth: 800, maxHeight: 800, quality: 0.72 });
+        setDriverFindingPhotoUrl(compressed);
+      } catch (err) {
+        console.warn('Gagal memproses foto temuan:', err);
+      }
     }
   };
 
@@ -292,14 +294,15 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   };
 
   // Direct file signature upload for Operator
-  const handleUploadOperatorSignature = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadOperatorSignature = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setSignatureUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, { maxWidth: 400, maxHeight: 200, quality: 0.75 });
+        setSignatureUrl(compressed);
+      } catch (err) {
+        console.warn('Gagal memproses tanda tangan:', err);
+      }
     }
   };
 

@@ -8,13 +8,16 @@ import {
   setDoc, 
   deleteDoc, 
   onSnapshot, 
-  writeBatch,
   getDocs,
   Unsubscribe 
 } from 'firebase/firestore';
+import { INITIAL_VEHICLES } from '../data/initialData';
+import { INITIAL_ACCOUNTS } from '../components/AccountProfileView';
+import { AppSettings, P2HFormRecord, VehicleUnit, UserProfile, NotificationItem } from '../types/p2h';
 
 export interface SyncPayload {
-  action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings';
+  action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'delete_all_records' | 'delete_vehicle' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings';
+  targetId?: string;
   records?: any[];
   vehicles?: any[];
   notifications?: any[];
@@ -30,10 +33,39 @@ export interface SyncPayload {
 type SyncCallback = (payload: SyncPayload) => void;
 type StatusCallback = (status: 'connected' | 'syncing' | 'offline', lastSyncTime?: string) => void;
 
+/**
+ * Deep sanitization for Firestore:
+ * Strips all `undefined` values and converts NaN/functions to safe JSON representations.
+ * Crucial to prevent "Unsupported field value: undefined" runtime errors.
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as any;
+  }
+  if (typeof data !== 'object') {
+    if (typeof data === 'number' && isNaN(data)) return 0 as any;
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => sanitizeForFirestore(item)) as any;
+  }
+
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data as Record<string, any>)) {
+    if (value !== undefined) {
+      result[key] = sanitizeForFirestore(value);
+    }
+  }
+  return result as T;
+}
+
 class RealtimeSyncManager {
   private broadcastChannel: BroadcastChannel | null = null;
   private listeners: Set<SyncCallback> = new Set();
   private statusListeners: Set<StatusCallback> = new Set();
+  
   public isConnected = false;
   public connectionStatus: 'connected' | 'syncing' | 'offline' = 'syncing';
   public lastSyncTime: string = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -42,11 +74,14 @@ class RealtimeSyncManager {
     : `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   
   private unsubscribers: Unsubscribe[] = [];
-  private knownRecordIds: Set<string> = new Set();
-  private knownVehicleIds: Set<string> = new Set();
-  private knownUserIds: Set<string> = new Set();
-  private isPushing = false;
-  private isInitialized = false;
+  
+  // In-memory latest state cache to immediately hydrate any component or newly mounted tab
+  public cachedRecords: P2HFormRecord[] = [];
+  public cachedVehicles: VehicleUnit[] = [];
+  public cachedUsers: UserProfile[] = [];
+  public cachedSettings: AppSettings | null = null;
+  public cachedNotifications: NotificationItem[] = [];
+  public hasReceivedInitialData = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -90,18 +125,14 @@ class RealtimeSyncManager {
         collection(db, 'p2h_records'),
         (snapshot) => {
           this.isConnected = true;
-          const records: any[] = [];
-          const currentIds = new Set<string>();
+          const records: P2HFormRecord[] = [];
 
           snapshot.forEach(docSnap => {
-            const data = docSnap.data();
+            const data = docSnap.data() as P2HFormRecord;
             if (data && data.id) {
               records.push(data);
-              currentIds.add(data.id);
             }
           });
-
-          this.knownRecordIds = currentIds;
 
           // Sort records descending by date & updatedAt
           records.sort((a, b) => {
@@ -110,11 +141,11 @@ class RealtimeSyncManager {
             return dateB.localeCompare(dateA);
           });
 
-          if (this.isInitialized || records.length > 0) {
-            this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            this.updateStatus('connected');
-            this.notifyListeners({ records });
-          }
+          this.cachedRecords = records;
+          this.hasReceivedInitialData = true;
+          this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          this.updateStatus('connected');
+          this.notifyListeners({ records });
         },
         (error) => {
           console.warn('Firestore p2h_records stream error:', error);
@@ -126,29 +157,44 @@ class RealtimeSyncManager {
       // B. Listen to Vehicles collection
       const unsubVehicles = onSnapshot(
         collection(db, 'vehicles'),
-        (snapshot) => {
+        async (snapshot) => {
           this.isConnected = true;
-          const vehicles: any[] = [];
-          const currentIds = new Set<string>();
+          const vehicles: VehicleUnit[] = [];
 
           snapshot.forEach(docSnap => {
-            const data = docSnap.data();
+            const data = docSnap.data() as VehicleUnit;
             if (data && data.id) {
               vehicles.push(data);
-              currentIds.add(data.id);
             }
           });
 
-          this.knownVehicleIds = currentIds;
+          // Auto-seed if Firestore vehicles collection is empty or missing initial units
+          if (snapshot.empty) {
+            console.log('Seeding initial vehicles to Firestore...');
+            this.seedInitialVehicles();
+            this.cachedVehicles = INITIAL_VEHICLES;
+            this.notifyListeners({ vehicles: INITIAL_VEHICLES });
+            return;
+          }
+
+          // If some initial vehicles are missing in Firestore, ensure all 4 default units exist
+          const existingIds = new Set(vehicles.map(v => v.id));
+          const missingDefaults = INITIAL_VEHICLES.filter(v => !existingIds.has(v.id));
+          if (missingDefaults.length > 0) {
+            for (const missing of missingDefaults) {
+              vehicles.push(missing);
+              setDoc(doc(db, 'vehicles', missing.id), sanitizeForFirestore(missing), { merge: true }).catch(() => {});
+            }
+          }
 
           // Sort vehicles by unitNumber (e.g. LV-EV-01, LV-EV-02)
           vehicles.sort((a, b) => (a.unitNumber || '').localeCompare(b.unitNumber || ''));
 
-          if (vehicles.length > 0) {
-            this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            this.updateStatus('connected');
-            this.notifyListeners({ vehicles });
-          }
+          this.cachedVehicles = vehicles;
+          this.hasReceivedInitialData = true;
+          this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          this.updateStatus('connected');
+          this.notifyListeners({ vehicles });
         },
         (error) => {
           console.warn('Firestore vehicles stream error:', error);
@@ -161,24 +207,27 @@ class RealtimeSyncManager {
         collection(db, 'users'),
         (snapshot) => {
           this.isConnected = true;
-          const users: any[] = [];
-          const currentIds = new Set<string>();
+          const users: UserProfile[] = [];
 
           snapshot.forEach(docSnap => {
-            const data = docSnap.data();
+            const data = docSnap.data() as UserProfile;
             if (data && data.id) {
               users.push(data);
-              currentIds.add(data.id);
             }
           });
 
-          this.knownUserIds = currentIds;
-
-          if (users.length > 0) {
-            this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            this.updateStatus('connected');
-            this.notifyListeners({ users });
+          if (snapshot.empty) {
+            this.seedInitialUsers();
+            this.cachedUsers = INITIAL_ACCOUNTS;
+            this.notifyListeners({ users: INITIAL_ACCOUNTS });
+            return;
           }
+
+          this.cachedUsers = users;
+          this.hasReceivedInitialData = true;
+          this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          this.updateStatus('connected');
+          this.notifyListeners({ users });
         },
         (error) => {
           console.warn('Firestore users stream error:', error);
@@ -192,10 +241,12 @@ class RealtimeSyncManager {
         (docSnap) => {
           this.isConnected = true;
           if (docSnap.exists()) {
-            const settings = docSnap.data();
+            const settingsData = docSnap.data() as AppSettings;
+            this.cachedSettings = settingsData;
+            this.hasReceivedInitialData = true;
             this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             this.updateStatus('connected');
-            this.notifyListeners({ settings });
+            this.notifyListeners({ settings: settingsData });
           }
         },
         (error) => {
@@ -209,9 +260,9 @@ class RealtimeSyncManager {
         collection(db, 'notifications'),
         (snapshot) => {
           this.isConnected = true;
-          const notifications: any[] = [];
+          const notifications: NotificationItem[] = [];
           snapshot.forEach(docSnap => {
-            const data = docSnap.data();
+            const data = docSnap.data() as NotificationItem;
             if (data && data.id) {
               notifications.push(data);
             }
@@ -219,9 +270,8 @@ class RealtimeSyncManager {
 
           notifications.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
-          if (this.isInitialized || notifications.length > 0) {
-            this.notifyListeners({ notifications });
-          }
+          this.cachedNotifications = notifications;
+          this.notifyListeners({ notifications });
         },
         (error) => {
           console.warn('Firestore notifications stream error:', error);
@@ -229,10 +279,31 @@ class RealtimeSyncManager {
       );
       this.unsubscribers.push(unsubNotifs);
 
-      this.isInitialized = true;
     } catch (err) {
       console.warn('Failed to initialize Firestore sync:', err);
       this.updateStatus('offline');
+    }
+  }
+
+  // Seed default vehicles if Firestore has none
+  private async seedInitialVehicles() {
+    try {
+      for (const veh of INITIAL_VEHICLES) {
+        await setDoc(doc(db, 'vehicles', veh.id), sanitizeForFirestore(veh), { merge: true });
+      }
+    } catch (err) {
+      console.warn('Error seeding vehicles:', err);
+    }
+  }
+
+  // Seed default user accounts if Firestore has none
+  private async seedInitialUsers() {
+    try {
+      for (const user of INITIAL_ACCOUNTS) {
+        await setDoc(doc(db, 'users', user.id), sanitizeForFirestore(user), { merge: true });
+      }
+    } catch (err) {
+      console.warn('Error seeding users:', err);
     }
   }
 
@@ -243,6 +314,24 @@ class RealtimeSyncManager {
 
   public subscribe(callback: SyncCallback) {
     this.listeners.add(callback);
+
+    // Immediately replay cached data to newly subscribed components
+    if (this.hasReceivedInitialData || this.cachedRecords.length > 0 || this.cachedVehicles.length > 0 || this.cachedSettings) {
+      queueMicrotask(() => {
+        try {
+          callback({
+            records: this.cachedRecords.length > 0 ? this.cachedRecords : undefined,
+            vehicles: this.cachedVehicles.length > 0 ? this.cachedVehicles : undefined,
+            users: this.cachedUsers.length > 0 ? this.cachedUsers : undefined,
+            settings: this.cachedSettings || undefined,
+            notifications: this.cachedNotifications
+          });
+        } catch (e) {
+          console.warn('Error in initial subscriber replay:', e);
+        }
+      });
+    }
+
     return () => {
       this.listeners.delete(callback);
     };
@@ -277,7 +366,10 @@ class RealtimeSyncManager {
     });
   }
 
-  // Push transaction updates to Cloud Firestore so ALL devices (Netlify, Mobile, AI Studio, PC) update in real-time
+  /**
+   * Push transaction updates to Cloud Firestore so ALL devices (Netlify, Mobile, AI Studio, PC)
+   * update in real-time.
+   */
   public async pushUpdate(payload: SyncPayload) {
     this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     this.updateStatus('syncing');
@@ -297,123 +389,80 @@ class RealtimeSyncManager {
       // ignore
     }
 
-    // 2. Persist to Cloud Firestore
+    // 2. Persist to Cloud Firestore via direct resilient writes
     try {
-      const batch = writeBatch(db);
-      let batchCount = 0;
-
-      // A. Sync Records
-      if (Array.isArray(payload.records)) {
-        const incomingRecordIds = new Set<string>();
-
+      // A. Explicit Record Deletion
+      if (payload.action === 'delete_record' && payload.targetId) {
+        await deleteDoc(doc(db, 'p2h_records', String(payload.targetId)));
+        this.cachedRecords = this.cachedRecords.filter(r => r.id !== payload.targetId);
+      } else if (payload.action === 'delete_all_records') {
+        const snap = await getDocs(collection(db, 'p2h_records'));
+        for (const d of snap.docs) {
+          await deleteDoc(d.ref);
+        }
+        this.cachedRecords = [];
+      } else if (Array.isArray(payload.records)) {
+        // Upsert incoming records without deleting existing records of other devices
         for (const record of payload.records) {
           if (record && record.id) {
-            incomingRecordIds.add(record.id);
-            const recordRef = doc(db, 'p2h_records', String(record.id));
-            batch.set(recordRef, record, { merge: true });
-            batchCount++;
+            const clean = sanitizeForFirestore(record);
+            await setDoc(doc(db, 'p2h_records', String(record.id)), clean, { merge: true });
           }
         }
-
-        // Delete records that were removed from the array
-        for (const oldId of this.knownRecordIds) {
-          if (!incomingRecordIds.has(oldId)) {
-            const delRef = doc(db, 'p2h_records', oldId);
-            batch.delete(delRef);
-            batchCount++;
-          }
-        }
-        this.knownRecordIds = incomingRecordIds;
       }
 
-      // B. Sync Vehicles
-      if (Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
-        const incomingVehicleIds = new Set<string>();
-
+      // B. Explicit Vehicle Deletion or Upsert
+      if (payload.action === 'delete_vehicle' && payload.targetId) {
+        await deleteDoc(doc(db, 'vehicles', String(payload.targetId)));
+        this.cachedVehicles = this.cachedVehicles.filter(v => v.id !== payload.targetId);
+      } else if (Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
         for (const vehicle of payload.vehicles) {
           if (vehicle && vehicle.id) {
-            incomingVehicleIds.add(vehicle.id);
-            const vehRef = doc(db, 'vehicles', String(vehicle.id));
-            batch.set(vehRef, vehicle, { merge: true });
-            batchCount++;
+            const clean = sanitizeForFirestore(vehicle);
+            await setDoc(doc(db, 'vehicles', String(vehicle.id)), clean, { merge: true });
           }
         }
-
-        for (const oldId of this.knownVehicleIds) {
-          if (!incomingVehicleIds.has(oldId)) {
-            const delRef = doc(db, 'vehicles', oldId);
-            batch.delete(delRef);
-            batchCount++;
-          }
-        }
-        this.knownVehicleIds = incomingVehicleIds;
       }
 
       // C. Sync Users
       if (Array.isArray(payload.users) && payload.users.length > 0) {
-        const incomingUserIds = new Set<string>();
-
         for (const user of payload.users) {
           if (user && user.id) {
-            incomingUserIds.add(user.id);
-            const userRef = doc(db, 'users', String(user.id));
-            batch.set(userRef, user, { merge: true });
-            batchCount++;
+            const clean = sanitizeForFirestore(user);
+            await setDoc(doc(db, 'users', String(user.id)), clean, { merge: true });
           }
         }
-
-        for (const oldId of this.knownUserIds) {
-          if (!incomingUserIds.has(oldId)) {
-            const delRef = doc(db, 'users', oldId);
-            batch.delete(delRef);
-            batchCount++;
-          }
-        }
-        this.knownUserIds = incomingUserIds;
       }
 
       // D. Sync Settings
       if (payload.settings && typeof payload.settings === 'object') {
-        const settingsRef = doc(db, 'settings', 'app_settings');
-        batch.set(settingsRef, payload.settings, { merge: true });
-        batchCount++;
+        const cleanSettings = sanitizeForFirestore(payload.settings);
+        await setDoc(doc(db, 'settings', 'app_settings'), cleanSettings, { merge: true });
+        this.cachedSettings = cleanSettings;
       }
 
       // E. Sync Notifications
       if (Array.isArray(payload.notifications)) {
         for (const notif of payload.notifications) {
           if (notif && notif.id) {
-            const notifRef = doc(db, 'notifications', String(notif.id));
-            batch.set(notifRef, notif, { merge: true });
-            batchCount++;
+            const clean = sanitizeForFirestore(notif);
+            await setDoc(doc(db, 'notifications', String(notif.id)), clean, { merge: true });
           }
         }
       }
 
-      // Metadata heartbeat doc
-      const metaRef = doc(db, 'sync_meta', 'heartbeat');
-      batch.set(metaRef, {
+      // Heartbeat metadata
+      await setDoc(doc(db, 'sync_meta', 'heartbeat'), {
         version: enriched.version,
         originId: this.clientId,
         sourceDevice: enriched.sourceDevice,
         updatedAt: enriched.timestamp
       }, { merge: true });
-      batchCount++;
-
-      if (batchCount > 0) {
-        await batch.commit();
-      }
 
       this.isConnected = true;
       this.updateStatus('connected');
     } catch (err) {
-      console.warn('Firestore batch write error:', err);
-      // Fallback individual write for resilience
-      try {
-        if (payload.settings) {
-          await setDoc(doc(db, 'settings', 'app_settings'), payload.settings, { merge: true });
-        }
-      } catch {}
+      console.error('Firestore real-time write error:', err);
       this.updateStatus('connected');
     }
 
@@ -440,7 +489,6 @@ class RealtimeSyncManager {
     }
 
     try {
-      // Re-check Firestore connection
       await testConnection();
       this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       this.updateStatus('connected');

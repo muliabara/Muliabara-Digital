@@ -23,8 +23,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   settings,
   onLoginSuccess
 }) => {
-  const [usernameInput, setUsernameInput] = useState('admin');
-  const [passwordInput, setPasswordInput] = useState('password123');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -123,7 +123,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4 text-xs">
+          <form onSubmit={handleLogin} autoComplete="off" className="space-y-4 text-xs">
             <div>
               <label className="block font-bold text-slate-700 mb-1">
                 Username atau NIK
@@ -132,6 +132,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   value={usernameInput}
                   onChange={e => setUsernameInput(e.target.value)}
                   placeholder="Masukkan username atau NIK"
@@ -149,6 +150,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="new-password"
                   value={passwordInput}
                   onChange={e => setPasswordInput(e.target.value)}
                   placeholder="Masukkan kata sandi"

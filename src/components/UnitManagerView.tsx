@@ -20,6 +20,7 @@ import {
   User
 } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
+import { compressImage } from '../utils/imageCompressor';
 
 interface UnitManagerViewProps {
   vehicles: VehicleUnit[];
@@ -65,22 +66,22 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
   // Delete Confirm Modal State
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, targetVehId?: string) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetVehId?: string) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
+      try {
+        const compressed = await compressImage(file, { maxWidth: 800, maxHeight: 600, quality: 0.75 });
         if (targetVehId) {
           const veh = vehicles.find(v => v.id === targetVehId);
           if (veh) {
-            onUpdateVehicle({ ...veh, photoUrl: result });
+            onUpdateVehicle({ ...veh, photoUrl: compressed });
           }
         } else {
-          setPhotoUrl(result);
+          setPhotoUrl(compressed);
         }
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.warn('Gagal memproses gambar unit:', err);
+      }
     }
   };
 
@@ -323,7 +324,7 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
                 {/* Truck Photo Asset (Editable photo feature) */}
                 <div className="my-3 rounded-xl overflow-hidden border border-slate-200 relative h-44 bg-slate-900 shadow-2xs group">
                   <img
-                    src={veh.photoUrl || "/src/assets/images/jac_t9_ev_pickup_1793024478024.jpg"}
+                    src={veh.photoUrl || "/assets/images/jac_t9_ev_pickup_1793024478024.jpg"}
                     alt={veh.unitNumber}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-95"
                   />
@@ -653,7 +654,7 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
                   <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                     <div className="w-32 h-20 bg-slate-900 rounded-lg overflow-hidden border border-slate-200 shrink-0 relative">
                       <img
-                        src={photoUrl || "/src/assets/images/jac_t9_ev_pickup_1793024478024.jpg"}
+                        src={photoUrl || "/assets/images/jac_t9_ev_pickup_1793024478024.jpg"}
                         alt="Preview Foto Unit"
                         className="w-full h-full object-cover"
                       />

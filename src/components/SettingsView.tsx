@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { playSound, playTriggerSound, SoundProfile } from '../utils/audio';
 import { getGlassCardClass } from '../utils/glass';
+import { compressImage } from '../utils/imageCompressor';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -123,6 +124,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [heroMainTitle, setHeroMainTitle] = useState<string>(settings.heroMainTitle || 'JAC T9 EV 4x4 Double Cabin · Smart Fleet Management');
   const [heroDescription, setHeroDescription] = useState<string>(settings.heroDescription || 'Sistem pemeriksaan harian terpadu unit Light Vehicle Electric Vehicle dengan verifikasi multi-peran (Master Admin, Pengawas, Driver). Memantau langsung kondisi skid plate pelindung baterai, sistem tegangan tinggi 350V, insulasi soket CCS2, dan efisiensi konsumsi kWh di site tambang Kutai.');
 
+  // Synchronize internal state whenever settings change via Firestore real-time sync
+  useEffect(() => {
+    if (settings) {
+      if (settings.primaryColor) setPrimaryColor(settings.primaryColor);
+      if (settings.themePreset) setThemePreset(settings.themePreset);
+      if (settings.fontFamily) setFontFamily(settings.fontFamily);
+      if (settings.companyName) setCompanyName(settings.companyName);
+      if (settings.tagline) setTagline(settings.tagline);
+      if (settings.appTitle) setAppTitle(settings.appTitle);
+      if (settings.appIcon) setAppIcon(settings.appIcon);
+      if (settings.logoUrl !== undefined) setLogoUrl(settings.logoUrl);
+      if (settings.soundEnabled !== undefined) setSoundEnabled(settings.soundEnabled);
+      if (settings.soundProfile) setSoundProfile(settings.soundProfile);
+      if (settings.backgroundMode) setBackgroundMode(settings.backgroundMode);
+      if (settings.backgroundImage !== undefined) setBackgroundImage(settings.backgroundImage);
+      if (settings.blurLevel) setBlurLevel(settings.blurLevel);
+      if (settings.glassIntensity) setGlassIntensity(settings.glassIntensity);
+      if (settings.backgroundBlurNumber !== undefined) setBackgroundBlurNumber(settings.backgroundBlurNumber);
+      if (settings.heroSubTitle) setHeroSubTitle(settings.heroSubTitle);
+      if (settings.heroDocNumber) setHeroDocNumber(settings.heroDocNumber);
+      if (settings.heroMainTitle) setHeroMainTitle(settings.heroMainTitle);
+      if (settings.heroDescription) setHeroDescription(settings.heroDescription);
+    }
+  }, [settings]);
+
   const [saveSuccess, setSaveSuccess] = useState(false);
   const glassCard = getGlassCardClass({ ...settings, glassIntensity, blurLevel });
 
@@ -148,18 +174,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     playTriggerSound();
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setLogoUrl(result);
+      try {
+        const compressed = await compressImage(file, { maxWidth: 400, maxHeight: 200, quality: 0.8 });
+        setLogoUrl(compressed);
         setAppIcon('custom');
-        localStorage.setItem('jac_app_logo_url', result);
+        localStorage.setItem('jac_app_logo_url', compressed);
         localStorage.setItem('jac_app_icon', 'custom');
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.warn('Gagal memproses logo:', err);
+      }
     }
   };
 
@@ -187,6 +213,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     localStorage.setItem('jac_sound_profile', soundProfile);
 
     const updated: AppSettings = {
+      ...settings,
       primaryColor,
       themePreset,
       fontFamily,
@@ -704,15 +731,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <input
                       type="file"
                       accept="image/png, image/jpeg, image/webp"
-                      onChange={e => {
+                      onChange={async e => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            setBackgroundImage(reader.result as string);
+                          try {
+                            const compressed = await compressImage(file, { maxWidth: 1200, maxHeight: 800, quality: 0.72 });
+                            setBackgroundImage(compressed);
                             playTriggerSound();
-                          };
-                          reader.readAsDataURL(file);
+                          } catch (err) {
+                            console.warn('Gagal memproses gambar latar:', err);
+                          }
                         }
                       }}
                       className="hidden"

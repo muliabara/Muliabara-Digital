@@ -16,7 +16,8 @@ export const INITIAL_VEHICLES: VehicleUnit[] = [
     status: 'operating',
     assignedDriver: 'Budi Santoso',
     location: 'Pit Utara - Mining Sector A',
-    skoExpiry: '2026-12-15'
+    skoExpiry: '2026-12-15',
+    photoUrl: '/assets/images/jac_t9_ev_pickup_1793024478024.jpg'
   },
   {
     id: 'veh_2',
@@ -33,7 +34,8 @@ export const INITIAL_VEHICLES: VehicleUnit[] = [
     status: 'ready',
     assignedDriver: 'Ahmad Fauzi',
     location: 'Central Workshop - Main Yard',
-    skoExpiry: '2027-02-28'
+    skoExpiry: '2027-02-28',
+    photoUrl: '/assets/images/jac_t9_ev_truck_1792914872311.jpg'
   },
   {
     id: 'veh_3',
@@ -50,7 +52,8 @@ export const INITIAL_VEHICLES: VehicleUnit[] = [
     status: 'maintenance_due',
     assignedDriver: 'Rudi Hermawan',
     location: 'ROM Pad Hauling Road KM 12',
-    skoExpiry: '2026-11-20'
+    skoExpiry: '2026-11-20',
+    photoUrl: '/assets/images/jac_t9_ev_pickup_1793024478024.jpg'
   },
   {
     id: 'veh_4',
@@ -67,11 +70,11 @@ export const INITIAL_VEHICLES: VehicleUnit[] = [
     status: 'ready',
     assignedDriver: 'Dedi Kurniawan',
     location: 'Port Terminal Jetty 2',
-    skoExpiry: '2027-01-10'
+    skoExpiry: '2027-01-10',
+    photoUrl: '/assets/images/jac_t9_ev_truck_1792914872311.jpg'
   }
 ];
 
 export const INITIAL_P2H_RECORDS: P2HFormRecord[] = [];
 
 export const INITIAL_MAINTENANCE_LOGS: MaintenanceLog[] = [];
-
