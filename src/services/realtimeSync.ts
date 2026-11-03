@@ -168,23 +168,13 @@ class RealtimeSyncManager {
             }
           });
 
-          // Auto-seed if Firestore vehicles collection is empty or missing initial units
-          if (snapshot.empty) {
+          // Auto-seed only once if Firestore vehicles collection is completely empty
+          if (snapshot.empty && !this.hasReceivedInitialData) {
             console.log('Seeding initial vehicles to Firestore...');
             this.seedInitialVehicles();
             this.cachedVehicles = INITIAL_VEHICLES;
             this.notifyListeners({ vehicles: INITIAL_VEHICLES });
             return;
-          }
-
-          // If some initial vehicles are missing in Firestore, ensure all 4 default units exist
-          const existingIds = new Set(vehicles.map(v => v.id));
-          const missingDefaults = INITIAL_VEHICLES.filter(v => !existingIds.has(v.id));
-          if (missingDefaults.length > 0) {
-            for (const missing of missingDefaults) {
-              vehicles.push(missing);
-              setDoc(doc(db, 'vehicles', missing.id), sanitizeForFirestore(missing), { merge: true }).catch(() => {});
-            }
           }
 
           // Sort vehicles by unitNumber (e.g. LV-EV-01, LV-EV-02)
@@ -415,6 +405,7 @@ class RealtimeSyncManager {
       if (payload.action === 'delete_vehicle' && payload.targetId) {
         await deleteDoc(doc(db, 'vehicles', String(payload.targetId)));
         this.cachedVehicles = this.cachedVehicles.filter(v => v.id !== payload.targetId);
+        this.notifyListeners({ vehicles: this.cachedVehicles });
       } else if (Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
         for (const vehicle of payload.vehicles) {
           if (vehicle && vehicle.id) {

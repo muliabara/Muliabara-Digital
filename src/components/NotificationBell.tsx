@@ -34,26 +34,57 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // Preserve all individual notifications and ensure each has a unique key
+  // Deduplicate notifications by formId so each P2H transaction has only 1 unified notification entry
   const uniqueNotifications = useMemo(() => {
-    return (notifications || []).map((n, idx) => ({
-      ...n,
-      id: n.id || `notif_${idx}_${Date.now()}`
-    }));
+    const map = new Map<string, NotificationItem>();
+    
+    // Process list preserving freshest notification per formId or unique id
+    (notifications || []).forEach((n, idx) => {
+      if (!n) return;
+      const key = n.formId ? `form_${n.formId}` : (n.id || `notif_${idx}`);
+      if (map.has(key)) {
+        const existing = map.get(key)!;
+        // If either is marked read or approved, preserve that status
+        const isRead = existing.read || n.read;
+        const isApproved = existing.type === 'p2h_approved' || n.type === 'p2h_approved';
+        map.set(key, {
+          ...n,
+          id: existing.id || n.id,
+          read: isRead || isApproved,
+          type: isApproved ? 'p2h_approved' : n.type,
+          title: isApproved && existing.title.includes('Disetujui') ? existing.title : n.title,
+          message: isApproved && existing.message.includes('disetujui') ? existing.message : n.message
+        });
+      } else {
+        map.set(key, {
+          ...n,
+          id: n.id || `notif_${idx}_${Date.now()}`
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      if (!a.read && b.read) return -1;
+      if (a.read && !b.read) return 1;
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    });
   }, [notifications]);
 
   const unreadCount = useMemo(() => {
-    return uniqueNotifications.filter(n => !n.read).length;
+    return uniqueNotifications.filter(n => !n.read && n.type === 'p2h_submitted').length;
   }, [uniqueNotifications]);
 
   const displayedNotifications = useMemo(() => {
     if (activeTab === 'unread') {
-      return uniqueNotifications.filter(n => !n.read);
+      return uniqueNotifications.filter(n => !n.read && n.type === 'p2h_submitted');
     }
     return uniqueNotifications;
   }, [uniqueNotifications, activeTab]);
 
-  const isAdmin = currentUser?.role === 'Master Admin' || currentUser?.role === 'admin';
+  // Roles authorized to approve P2H per requirement: Foreman, Pengawas, Admin & Master Admin
+  const canApprove = ['master admin', 'admin', 'foreman', 'pengawas'].includes(
+    (currentUser?.role || '').toLowerCase().trim()
+  );
 
   // Close when clicking outside
   useEffect(() => {
@@ -196,7 +227,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                         <div className="flex items-center gap-2 pt-1 flex-wrap">
                           {isPendingForm && item.formId && (
                             <>
-                              {isAdmin ? (
+                              {canApprove ? (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -210,7 +241,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                               ) : (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                   <Lock className="w-3 h-3 text-amber-600" />
-                                  Perlu Approve Admin
+                                  Perlu Otorisasi Foreman/Pengawas/Admin
                                 </span>
                               )}
                             </>

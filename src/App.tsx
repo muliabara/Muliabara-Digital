@@ -357,26 +357,39 @@ export default function App() {
       return updatedVehicles;
     });
 
-    const newNotif: NotificationItem = {
-      id: `notif_${Date.now()}`,
-      title: `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
-      message: `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Menunggu persetujuan resmi Pengawas/Admin.`,
-      timestamp: 'Baru saja',
-      type: 'p2h_submitted',
-      read: false,
-      formId: savedForm.id,
-      unitNumber: savedForm.unitNumber,
-      operatorName: savedForm.operatorName,
-      targetRole: 'admin'
-    };
+    const isApproved = savedForm.overallStatus === 'approved' || savedForm.foremanApproval?.status === 'approved';
 
-    setNotifications(prev => [newNotif, ...prev]);
+    let updatedNotifications: NotificationItem[] = [];
+    setNotifications(prev => {
+      // Remove any prior notification for this specific formId so notifications are never duplicated
+      const otherNotifs = prev.filter(n => n.formId !== savedForm.id);
+
+      const notifItem: NotificationItem = {
+        id: `notif_${savedForm.id}`,
+        title: isApproved 
+          ? `✅ P2H Disetujui: ${savedForm.unitNumber}`
+          : `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
+        message: isApproved 
+          ? `Formulir P2H unit ${savedForm.unitNumber} (${savedForm.shift}) telah diverifikasi & disetujui resmi oleh ${savedForm.foremanApproval?.foremanName || activeUser.name}. Unit laik beroperasi.`
+          : `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Menunggu persetujuan resmi Foreman/Pengawas/Admin.`,
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA',
+        type: isApproved ? 'p2h_approved' : 'p2h_submitted',
+        read: isApproved ? true : false,
+        formId: savedForm.id,
+        unitNumber: savedForm.unitNumber,
+        operatorName: savedForm.operatorName,
+        targetRole: 'admin'
+      };
+
+      updatedNotifications = [notifItem, ...otherNotifs];
+      return updatedNotifications;
+    });
 
     // Realtime sync across devices immediately after transaction
     realtimeSync.pushUpdate({
       records: [savedForm],
       vehicles: updatedVehicles.length ? updatedVehicles : vehicles,
-      notifications: [newNotif]
+      notifications: updatedNotifications
     });
 
     setEditingForm(null);
@@ -393,8 +406,11 @@ export default function App() {
 
   // Handler: Quick Approve from Notification Bell
   const handleQuickApproveFromBell = (formId: string, notifId?: string) => {
-    if (activeUser.role !== 'admin' && activeUser.role !== 'Master Admin') {
-      alert('Akses Ditolak: Hanya Akun Admin yang memiliki hak otorisasi untuk menyetujui (Approve) P2H.');
+    const roleLower = (activeUser.role || '').toLowerCase().trim();
+    // Authorized roles: Foreman, Pengawas, Admin & Master Admin
+    const canApprove = ['admin', 'master admin', 'foreman', 'pengawas'].includes(roleLower);
+    if (!canApprove) {
+      alert('Akses Ditolak: Hanya Foreman, Pengawas, Admin, atau Master Admin yang memiliki hak otorisasi untuk menyetujui (Approve) P2H.');
       return;
     }
 
@@ -410,10 +426,10 @@ export default function App() {
             overallStatus: 'approved' as const,
             foremanApproval: {
               status: 'approved' as const,
-              notes: 'Disetujui resmi melalui Lonceng Pemberitahuan K3.',
+              notes: r.foremanApproval?.notes || 'Disetujui resmi melalui Lonceng Pemberitahuan K3.',
               foremanName: approvingAdmin.name,
               foremanNik: approvingAdmin.nik,
-              signatureUrl: approvingAdmin.signatureDataUrl || r.foremanApproval.signatureUrl,
+              signatureUrl: approvingAdmin.signatureDataUrl || r.foremanApproval?.signatureUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M15,45 Q60,15 95,50 T160,25 T195,55" fill="none" stroke="%230f172a" stroke-width="3"/></svg>',
               approvedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA'
             }
           };
@@ -424,20 +440,15 @@ export default function App() {
     });
 
     let updatedNotifications: NotificationItem[] = [];
-    let singleApproved = false;
     setNotifications(prev => {
       updatedNotifications = prev.map(n => {
-        const isTarget = notifId 
-          ? n.id === notifId 
-          : (!singleApproved && n.formId === formId && n.type === 'p2h_submitted');
-        
-        if (isTarget) {
-          singleApproved = true;
+        // Mark ALL notifications referencing this formId (or the clicked notifId) as read & approved
+        if (n.id === notifId || (n.formId && n.formId === formId)) {
           return {
             ...n,
             read: true,
             title: `✅ Disetujui: ${n.unitNumber || 'P2H'}`,
-            message: `Formulir P2H telah disetujui resmi oleh ${approvingAdmin.name} (Admin). Unit diizinkan beroperasi.`,
+            message: `Formulir P2H telah disetujui resmi oleh ${approvingAdmin.name} (${approvingAdmin.role}). Unit diizinkan beroperasi.`,
             type: 'p2h_approved' as const
           };
         }
@@ -490,8 +501,14 @@ export default function App() {
   };
 
   const handleDeleteVehicle = (unitId: string) => {
-    setVehicles(prev => prev.filter(v => v.id !== unitId));
+    let updated: VehicleUnit[] = [];
+    setVehicles(prev => {
+      updated = prev.filter(v => v.id !== unitId);
+      saveCompressed(STORAGE_KEYS.VEHICLES, updated);
+      return updated;
+    });
     realtimeSync.pushUpdate({ action: 'delete_vehicle', targetId: unitId });
+    playTriggerSound();
   };
 
   // Handlers for User Management

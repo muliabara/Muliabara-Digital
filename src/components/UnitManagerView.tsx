@@ -65,6 +65,7 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
 
   // Delete Confirm Modal State
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteToast, setDeleteToast] = useState<string | null>(null);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetVehId?: string) => {
     const file = e.target.files?.[0];
@@ -189,8 +190,12 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
   };
 
   const handleDelete = (id: string) => {
+    const target = vehicles.find(v => v.id === id);
+    const unitName = target ? target.unitNumber : 'Unit';
     onDeleteVehicle(id);
     setDeleteConfirmId(null);
+    setDeleteToast(`Unit ${unitName} berhasil dihapus dari sistem.`);
+    setTimeout(() => setDeleteToast(null), 3000);
   };
 
   return (
@@ -742,6 +747,14 @@ export const UnitManagerView: React.FC<UnitManagerViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* DELETE SUCCESS TOAST */}
+      {deleteToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-4">
+          <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span className="text-xs font-bold">{deleteToast}</span>
         </div>
       )}
     </div>
