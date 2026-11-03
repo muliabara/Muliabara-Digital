@@ -359,37 +359,47 @@ export default function App() {
 
     const isApproved = savedForm.overallStatus === 'approved' || savedForm.foremanApproval?.status === 'approved';
 
-    let updatedNotifications: NotificationItem[] = [];
+    let notifItemToPush: NotificationItem | undefined = undefined;
+    let notificationsToDelete: string[] = [];
+
     setNotifications(prev => {
-      // Remove any prior notification for this specific formId so notifications are never duplicated
+      // Find and remove any existing notification for this form
+      const existingForForm = prev.filter(n => n.formId === savedForm.id);
+      notificationsToDelete = existingForForm.map(n => n.id);
+      
       const otherNotifs = prev.filter(n => n.formId !== savedForm.id);
 
-      const notifItem: NotificationItem = {
-        id: `notif_${savedForm.id}`,
-        title: isApproved 
-          ? `✅ P2H Disetujui: ${savedForm.unitNumber}`
-          : `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
-        message: isApproved 
-          ? `Formulir P2H unit ${savedForm.unitNumber} (${savedForm.shift}) telah diverifikasi & disetujui resmi oleh ${savedForm.foremanApproval?.foremanName || activeUser.name}. Unit laik beroperasi.`
-          : `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Menunggu persetujuan resmi Foreman/Pengawas/Admin.`,
-        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA',
-        type: isApproved ? 'p2h_approved' : 'p2h_submitted',
-        read: isApproved ? true : false,
-        formId: savedForm.id,
-        unitNumber: savedForm.unitNumber,
-        operatorName: savedForm.operatorName,
-        targetRole: 'admin'
-      };
-
-      updatedNotifications = [notifItem, ...otherNotifs];
-      return updatedNotifications;
+      if (isApproved) {
+        // If approved, we don't need a new notification (it should "hilang")
+        return otherNotifs;
+      } else {
+        // If pending, create/refresh the notification
+        const newItem: NotificationItem = {
+          id: `notif_${savedForm.id}`,
+          title: `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
+          message: `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Menunggu persetujuan resmi Foreman/Pengawas/Admin.`,
+          timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA',
+          type: 'p2h_submitted',
+          read: false,
+          formId: savedForm.id,
+          unitNumber: savedForm.unitNumber,
+          operatorName: savedForm.operatorName,
+          targetRole: 'admin'
+        };
+        notifItemToPush = newItem;
+        return [newItem, ...otherNotifs];
+      }
     });
 
-    // Realtime sync across devices immediately after transaction
+    const changedVehicle = updatedVehicles.find(v => v.unitNumber === savedForm.unitNumber);
+
+    // Realtime sync delta only - prevents stale data from other devices being overwritten
     realtimeSync.pushUpdate({
       records: [savedForm],
-      vehicles: updatedVehicles.length ? updatedVehicles : vehicles,
-      notifications: updatedNotifications
+      vehicles: changedVehicle ? [changedVehicle] : undefined,
+      notifications: notifItemToPush ? [notifItemToPush] : undefined,
+      action: (isApproved && notificationsToDelete.length) ? 'delete_notification' : undefined,
+      targetId: (isApproved && notificationsToDelete.length) ? notificationsToDelete : undefined
     });
 
     setEditingForm(null);
@@ -407,7 +417,6 @@ export default function App() {
   // Handler: Quick Approve from Notification Bell
   const handleQuickApproveFromBell = (formId: string, notifId?: string) => {
     const roleLower = (activeUser.role || '').toLowerCase().trim();
-    // Authorized roles: Foreman, Pengawas, Admin & Master Admin
     const canApprove = ['admin', 'master admin', 'foreman', 'pengawas'].includes(roleLower);
     if (!canApprove) {
       alert('Akses Ditolak: Hanya Foreman, Pengawas, Admin, atau Master Admin yang memiliki hak otorisasi untuk menyetujui (Approve) P2H.');
@@ -439,27 +448,17 @@ export default function App() {
       return updatedRecords;
     });
 
-    let updatedNotifications: NotificationItem[] = [];
+    let idsToDelete: string[] = [];
     setNotifications(prev => {
-      updatedNotifications = prev.map(n => {
-        // Mark ALL notifications referencing this formId (or the clicked notifId) as read & approved
-        if (n.id === notifId || (n.formId && n.formId === formId)) {
-          return {
-            ...n,
-            read: true,
-            title: `✅ Disetujui: ${n.unitNumber || 'P2H'}`,
-            message: `Formulir P2H telah disetujui resmi oleh ${approvingAdmin.name} (${approvingAdmin.role}). Unit diizinkan beroperasi.`,
-            type: 'p2h_approved' as const
-          };
-        }
-        return n;
-      });
-      return updatedNotifications;
+      const targets = prev.filter(n => n.id === notifId || (n.formId && n.formId === formId));
+      idsToDelete = targets.map(t => t.id);
+      return prev.filter(n => !idsToDelete.includes(n.id));
     });
 
     realtimeSync.pushUpdate({
       records: updatedRecords,
-      notifications: updatedNotifications
+      action: 'delete_notification',
+      targetId: idsToDelete
     });
 
     playSuccessChime();
@@ -513,21 +512,19 @@ export default function App() {
 
   // Handlers for User Management
   const handleAddUser = (newUser: UserProfile) => {
-    let updated: UserProfile[] = [];
     setAllUsers(prev => {
       const filtered = prev.filter(u => u.id !== newUser.id);
-      updated = [newUser, ...filtered];
+      const updated = [newUser, ...filtered];
       saveCompressed(STORAGE_KEYS.USERS, updated);
       return updated;
     });
-    realtimeSync.pushUpdate({ users: updated.length ? updated : [newUser, ...allUsers] });
+    realtimeSync.pushUpdate({ users: [newUser] });
     playTriggerSound();
   };
 
   const handleUpdateUser = (updatedUser: UserProfile) => {
-    let updated: UserProfile[] = [];
     setAllUsers(prev => {
-      updated = prev.map(u => (u.id === updatedUser.id ? updatedUser : u));
+      const updated = prev.map(u => (u.id === updatedUser.id ? updatedUser : u));
       saveCompressed(STORAGE_KEYS.USERS, updated);
       return updated;
     });
@@ -536,18 +533,17 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, updatedUser.id);
       saveCompressed(STORAGE_KEYS.CURRENT_USER, updatedUser);
     }
-    realtimeSync.pushUpdate({ users: updated });
+    realtimeSync.pushUpdate({ users: [updatedUser] });
     playTriggerSound();
   };
 
   const handleDeleteUser = (userId: string) => {
-    let updated: UserProfile[] = [];
     setAllUsers(prev => {
-      updated = prev.filter(u => u.id !== userId);
+      const updated = prev.filter(u => u.id !== userId);
       saveCompressed(STORAGE_KEYS.USERS, updated);
       return updated;
     });
-    realtimeSync.pushUpdate({ users: updated });
+    realtimeSync.pushUpdate({ action: 'delete_user', targetId: userId });
     playTriggerSound();
   };
 
@@ -969,16 +965,16 @@ export default function App() {
             {/* Notification Bell */}
             <NotificationBell
               notifications={notifications}
+              records={p2hRecords}
               currentUser={activeUser}
               onMarkAsRead={id => {
-                const updated = notifications.map(n => n.id === id ? { ...n, read: true } : n);
-                setNotifications(updated);
-                realtimeSync.pushUpdate({ notifications: updated });
+                setNotifications(prev => prev.filter(n => n.id !== id));
+                realtimeSync.pushUpdate({ action: 'delete_notification', targetId: id });
               }}
               onMarkAllAsRead={() => {
-                const updated = notifications.map(n => ({ ...n, read: true }));
-                setNotifications(updated);
-                realtimeSync.pushUpdate({ notifications: updated });
+                const ids = notifications.map(n => n.id);
+                setNotifications([]);
+                realtimeSync.pushUpdate({ action: 'delete_notification', targetId: ids });
               }}
               onQuickApprove={handleQuickApproveFromBell}
               onViewForm={formId => {

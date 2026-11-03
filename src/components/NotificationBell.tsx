@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { NotificationItem, UserProfile } from '../types/p2h';
+import { NotificationItem, UserProfile, P2HFormRecord } from '../types/p2h';
 import { 
   Bell, 
   CheckCircle, 
@@ -15,6 +15,7 @@ import {
 
 interface NotificationBellProps {
   notifications: NotificationItem[];
+  records: P2HFormRecord[];
   currentUser: UserProfile;
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
@@ -24,6 +25,7 @@ interface NotificationBellProps {
 
 export const NotificationBell: React.FC<NotificationBellProps> = ({
   notifications,
+  records,
   currentUser,
   onMarkAsRead,
   onMarkAllAsRead,
@@ -31,57 +33,52 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   onViewForm
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // Deduplicate notifications by formId so each P2H transaction has only 1 unified notification entry
+  // Deduplicate and filter notifications: only pending or new items that should be in the bell.
+  // Approved/Read items are filtered out so they "disappear" as requested.
+  // CRITICAL: We also check the 'records' status to hide notifications for forms already approved.
   const uniqueNotifications = useMemo(() => {
     const map = new Map<string, NotificationItem>();
     
-    // Process list preserving freshest notification per formId or unique id
+    // Create a lookup for approved form IDs
+    const approvedFormIds = new Set(
+      (records || [])
+        .filter(r => r.overallStatus === 'approved')
+        .map(r => r.id)
+    );
+
     (notifications || []).forEach((n, idx) => {
       if (!n) return;
       const key = n.formId ? `form_${n.formId}` : (n.id || `notif_${idx}`);
+
+      // Filter: If the form is already approved, skip this notification entirely
+      if (n.formId && approvedFormIds.has(n.formId)) return;
+
       if (map.has(key)) {
         const existing = map.get(key)!;
-        // If either is marked read or approved, preserve that status
         const isRead = existing.read || n.read;
         const isApproved = existing.type === 'p2h_approved' || n.type === 'p2h_approved';
         map.set(key, {
           ...n,
           id: existing.id || n.id,
           read: isRead || isApproved,
-          type: isApproved ? 'p2h_approved' : n.type,
-          title: isApproved && existing.title.includes('Disetujui') ? existing.title : n.title,
-          message: isApproved && existing.message.includes('disetujui') ? existing.message : n.message
+          type: isApproved ? 'p2h_approved' : n.type
         });
       } else {
-        map.set(key, {
-          ...n,
-          id: n.id || `notif_${idx}_${Date.now()}`
-        });
+        map.set(key, { ...n, id: n.id || `notif_${idx}_${Date.now()}` });
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => {
-      if (!a.read && b.read) return -1;
-      if (a.read && !b.read) return 1;
-      return (b.timestamp || '').localeCompare(a.timestamp || '');
-    });
-  }, [notifications]);
+    return Array.from(map.values())
+      .filter(n => !n.read && n.type !== 'p2h_approved' && n.type !== 'p2h_rejected')
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+  }, [notifications, records]);
 
   const unreadCount = useMemo(() => {
-    return uniqueNotifications.filter(n => !n.read && n.type === 'p2h_submitted').length;
+    return uniqueNotifications.length;
   }, [uniqueNotifications]);
 
-  const displayedNotifications = useMemo(() => {
-    if (activeTab === 'unread') {
-      return uniqueNotifications.filter(n => !n.read && n.type === 'p2h_submitted');
-    }
-    return uniqueNotifications;
-  }, [uniqueNotifications, activeTab]);
-
-  // Roles authorized to approve P2H per requirement: Foreman, Pengawas, Admin & Master Admin
   const canApprove = ['master admin', 'admin', 'foreman', 'pengawas'].includes(
     (currentUser?.role || '').toLowerCase().trim()
   );
@@ -142,41 +139,15 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             )}
           </div>
 
-          {/* Filter Tabs */}
-          <div className="flex border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-xs font-semibold gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                activeTab === 'all'
-                  ? 'bg-white text-slate-900 shadow-2xs font-bold border border-slate-200'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              Semua ({uniqueNotifications.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('unread')}
-              className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                activeTab === 'unread'
-                  ? 'bg-white text-slate-900 shadow-2xs font-bold border border-slate-200'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              Belum Dibaca ({unreadCount})
-            </button>
-          </div>
-
-          {/* Notification Items List */}
+          {/* Notification Items List (Action Only) */}
           <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 text-xs">
-            {displayedNotifications.length === 0 ? (
+            {uniqueNotifications.length === 0 ? (
               <div className="p-8 text-center text-slate-400 space-y-2">
                 <Bell className="w-8 h-8 mx-auto opacity-30 text-slate-400" />
-                <p className="text-xs font-medium">Tidak ada pemberitahuan {activeTab === 'unread' ? 'belum dibaca' : ''}.</p>
+                <p className="text-xs font-medium">Tidak ada pemberitahuan atau permintaan approval baru.</p>
               </div>
             ) : (
-              displayedNotifications.map(item => {
+              uniqueNotifications.map(item => {
                 const isPendingForm = item.type === 'p2h_submitted';
 
                 return (

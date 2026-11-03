@@ -16,8 +16,8 @@ import { INITIAL_ACCOUNTS } from '../components/AccountProfileView';
 import { AppSettings, P2HFormRecord, VehicleUnit, UserProfile, NotificationItem } from '../types/p2h';
 
 export interface SyncPayload {
-  action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'delete_all_records' | 'delete_vehicle' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings';
-  targetId?: string;
+  action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'delete_all_records' | 'delete_vehicle' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings' | 'delete_notification' | 'delete_user';
+  targetId?: string | string[];
   records?: any[];
   vehicles?: any[];
   notifications?: any[];
@@ -397,6 +397,18 @@ class RealtimeSyncManager {
           if (record && record.id) {
             const clean = sanitizeForFirestore(record);
             await setDoc(doc(db, 'p2h_records', String(record.id)), clean, { merge: true });
+            
+            // Relational Cleanup: If record is approved, auto-delete any linked notifications
+            if (record.overallStatus === 'approved') {
+              const relatedNotifs = this.cachedNotifications.filter(n => n.formId === record.id);
+              if (relatedNotifs.length > 0) {
+                for (const rn of relatedNotifs) {
+                  await deleteDoc(doc(db, 'notifications', String(rn.id))).catch(() => {});
+                }
+                this.cachedNotifications = this.cachedNotifications.filter(n => n.formId !== record.id);
+                this.notifyListeners({ notifications: this.cachedNotifications });
+              }
+            }
           }
         }
       }
@@ -415,8 +427,15 @@ class RealtimeSyncManager {
         }
       }
 
-      // C. Sync Users
-      if (Array.isArray(payload.users) && payload.users.length > 0) {
+      // C. Sync Users or Explicit Deletion
+      if (payload.action === 'delete_user' && payload.targetId) {
+        const ids = Array.isArray(payload.targetId) ? payload.targetId : [payload.targetId];
+        for (const id of ids) {
+          await deleteDoc(doc(db, 'users', String(id)));
+        }
+        this.cachedUsers = this.cachedUsers.filter(u => !ids.includes(u.id));
+        this.notifyListeners({ users: this.cachedUsers });
+      } else if (Array.isArray(payload.users) && payload.users.length > 0) {
         for (const user of payload.users) {
           if (user && user.id) {
             const clean = sanitizeForFirestore(user);
@@ -432,8 +451,15 @@ class RealtimeSyncManager {
         this.cachedSettings = cleanSettings;
       }
 
-      // E. Sync Notifications
-      if (Array.isArray(payload.notifications)) {
+      // E. Sync Notifications or Explicit Deletion
+      if (payload.action === 'delete_notification' && payload.targetId) {
+        const ids = Array.isArray(payload.targetId) ? payload.targetId : [payload.targetId];
+        for (const id of ids) {
+          await deleteDoc(doc(db, 'notifications', String(id)));
+        }
+        this.cachedNotifications = this.cachedNotifications.filter(n => !ids.includes(n.id));
+        this.notifyListeners({ notifications: this.cachedNotifications });
+      } else if (Array.isArray(payload.notifications)) {
         for (const notif of payload.notifications) {
           if (notif && notif.id) {
             const clean = sanitizeForFirestore(notif);
