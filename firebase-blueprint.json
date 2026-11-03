@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "P2HRecord": {
+      "title": "P2H Form Record",
+      "description": "Daily inspection record for JAC T9 EV mining units",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "docNumber": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "operatorNik": { "type": "string" },
+        "date": { "type": "string" },
+        "shift": { "type": "string" },
+        "unitNumber": { "type": "string" }
+      },
+      "required": ["id", "docNumber", "unitNumber", "date"]
+    },
+    "VehicleUnit": {
+      "title": "Vehicle Fleet Unit",
+      "description": "JAC T9 EV Double Cabin 4x4 Fleet Unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "unitNumber": { "type": "string" },
+        "model": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "unitNumber"]
+    },
+    "UserProfile": {
+      "title": "User Profile Account",
+      "description": "User account with role, SIMPER, NIK, and credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "name", "role"]
+    },
+    "AppSettings": {
+      "title": "Application Global Settings",
+      "description": "App theme, hero texts, branding, and audio profile",
+      "type": "object",
+      "properties": {
+        "primaryColor": { "type": "string" },
+        "heroMainTitle": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/p2h_records/{recordId}": {
+      "schema": "P2HRecord",
+      "description": "Daily P2H inspections"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "VehicleUnit",
+      "description": "Mining fleet vehicles"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and credentials"
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "Global application configuration"
+    }
+  }
+}

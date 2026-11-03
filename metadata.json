@@ -1,0 +1,8 @@
+{
+  "name": "Smart P2H Update",
+  "description": "Aplikasi Pelaksanaan Perawatan Harian (P2H) Light Vehicle Electric Vehicle JAC T9 EV dengan alur approval atasan/mekanik, resume harian konsumsi energi \u0026 konversi kWh, dan sistem pengingat servis berkala.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
