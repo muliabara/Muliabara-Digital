@@ -497,24 +497,30 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Lokasi Kerja</label>
-            <input
-              type="text"
+            <select
               value={workLocation}
               onChange={e => setWorkLocation(e.target.value)}
-              placeholder="Diisi manual oleh Driver..."
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900 placeholder:text-slate-400 placeholder:italic"
-            />
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900 font-medium"
+            >
+              <option value="">-- Pilih Lokasi Kerja --</option>
+              <option value="Samarinda">Samarinda</option>
+              <option value="Kotabangun">Kotabangun</option>
+              <option value="Long Mahli">Long Mahli</option>
+            </select>
           </div>
 
           <div>
             <label className="block font-bold text-slate-700 mb-1">Job Site</label>
-            <input
-              type="text"
+            <select
               value={jobSite}
               onChange={e => setJobSite(e.target.value)}
-              placeholder="Diisi manual oleh Driver..."
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900 placeholder:text-slate-400 placeholder:italic"
-            />
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900 font-medium"
+            >
+              <option value="">-- Pilih Job Site --</option>
+              <option value="SMD">SMD</option>
+              <option value="KBCT">KBCT</option>
+              <option value="LMP">LMP</option>
+            </select>
           </div>
 
           <div>
