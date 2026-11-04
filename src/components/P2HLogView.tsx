@@ -382,7 +382,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
               </div>
 
               {/* Telemetry Metrics Grid */}
-              <div className="grid grid-cols-3 gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs">
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Odometer</span>
                   <span className="font-mono font-bold text-slate-900 block text-[11px]">+{record.totalKm} KM</span>
@@ -390,7 +390,12 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
 
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Baterai (SOC)</span>
-                  <span className="font-mono font-bold text-amber-600 block text-[11px]">{record.startSoc}% → {record.endSoc}%</span>
+                  <span className="font-mono font-bold text-slate-800 block text-[11px]">{record.startSoc}% → {record.endSoc}%</span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-medium">Charging & Final SOC</span>
+                  <span className="font-mono font-bold text-emerald-700 block text-[11px]">+{record.charging?.percentCharged || 0}% ({Math.min(100, record.endSoc + (record.charging?.percentCharged || 0))}%)</span>
                 </div>
 
                 <div>
@@ -464,6 +469,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                 <th className="py-3 px-3 text-right font-mono">HM/KM</th>
                 <th className="py-3 px-3 text-center">Baterai (SOC)</th>
                 <th className="py-3 px-4 text-right font-mono font-bold text-sky-700">Energi (kWh)</th>
+                <th className="py-3 px-3 text-center">Charging & SOC Akhir</th>
                 <th className="py-3 px-4 text-center">Status P2H</th>
                 <th className="py-3 px-4 text-center">Aksi Dokumen</th>
               </tr>
@@ -471,7 +477,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
             <tbody className="divide-y divide-slate-100">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     Tidak ada catatan Log P2H yang sesuai dengan kriteria filter.
                   </td>
                 </tr>
@@ -504,12 +510,9 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                       </td>
 
                       <td className="py-3.5 px-3 text-center">
-                        <div className="font-mono text-slate-800">
+                        <div className="font-mono font-bold text-slate-800">
                           {record.startSoc}% → {record.endSoc}%
                         </div>
-                        <span className="text-[10px] text-amber-600 font-semibold block">
-                          Terpakai {record.batteryUsedPercent}%
-                        </span>
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
@@ -518,6 +521,15 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                         </span>
                         <span className="text-[10px] text-emerald-600 font-mono">
                           {record.consumptionRateKwhPerKm} kWh/km
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-3 text-center font-mono">
+                        <span className="text-emerald-700 font-bold block text-xs">
+                          +{record.charging?.percentCharged || 0}% <span className="text-[10px] text-slate-500 font-normal">({record.charging?.energyAddedKwh || 0} kWh)</span>
+                        </span>
+                        <span className="text-[10px] text-slate-600 font-semibold block">
+                          SOC Akhir Total: {Math.min(100, record.endSoc + (record.charging?.percentCharged || 0))}%
                         </span>
                       </td>
 
