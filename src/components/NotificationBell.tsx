@@ -37,34 +37,54 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
   // Deduplicate and filter notifications: only pending or new items that should be in the bell.
   // Approved/Read items are filtered out so they "disappear" as requested.
-  // CRITICAL: We also check the 'records' status to hide notifications for forms already approved.
+  // CRITICAL: We check the 'records' status:
+  // 1. If form does not exist in records (no transaction), DO NOT DISPLAY!
+  // 2. If form is already approved, DO NOT DISPLAY!
   const uniqueNotifications = useMemo(() => {
     const map = new Map<string, NotificationItem>();
     
-    // Create a lookup for approved form IDs
-    const approvedFormIds = new Set(
-      (records || [])
-        .filter(r => r.overallStatus === 'approved')
-        .map(r => r.id)
-    );
+    // Map of all available records by id
+    const recordMap = new Map((records || []).map(r => [r.id, r]));
 
     (notifications || []).forEach((n, idx) => {
       if (!n) return;
-      const key = n.formId ? `form_${n.formId}` : (n.id || `notif_${idx}`);
 
-      // Filter: If the form is already approved, skip this notification entirely
-      if (n.formId && approvedFormIds.has(n.formId)) return;
+      // If notification is associated with a P2H form:
+      if (n.formId) {
+        const linkedRecord = recordMap.get(n.formId);
+        // If there is NO transaction for this notification, skip it completely!
+        if (!linkedRecord) return;
+
+        // If the transaction is already approved, skip it completely!
+        if (linkedRecord.overallStatus === 'approved' || linkedRecord.foremanApproval?.status === 'approved') {
+          return;
+        }
+      } else if (n.type === 'p2h_submitted') {
+        // Submission notification with no formId is invalid - skip!
+        return;
+      }
+
+      // If already marked read or approved/rejected, skip!
+      if (n.read || n.type === 'p2h_approved' || n.type === 'p2h_rejected') {
+        return;
+      }
+
+      const key = n.formId ? `form_${n.formId}` : (n.id || `notif_${idx}`);
 
       if (map.has(key)) {
         const existing = map.get(key)!;
         const isRead = existing.read || n.read;
-        const isApproved = existing.type === 'p2h_approved' || n.type === 'p2h_approved';
-        map.set(key, {
-          ...n,
-          id: existing.id || n.id,
-          read: isRead || isApproved,
-          type: isApproved ? 'p2h_approved' : n.type
-        });
+        const isApproved = String(existing.type) === 'p2h_approved' || String(n.type) === 'p2h_approved';
+        if (isRead || isApproved) {
+          map.delete(key);
+        } else {
+          map.set(key, {
+            ...n,
+            id: existing.id || n.id,
+            read: false,
+            type: n.type
+          });
+        }
       } else {
         map.set(key, { ...n, id: n.id || `notif_${idx}_${Date.now()}` });
       }

@@ -385,12 +385,26 @@ class RealtimeSyncManager {
       if (payload.action === 'delete_record' && payload.targetId) {
         await deleteDoc(doc(db, 'p2h_records', String(payload.targetId)));
         this.cachedRecords = this.cachedRecords.filter(r => r.id !== payload.targetId);
+        // Also delete any notification associated with this record
+        const relatedNotifs = this.cachedNotifications.filter(n => n.formId === payload.targetId);
+        for (const rn of relatedNotifs) {
+          await deleteDoc(doc(db, 'notifications', String(rn.id))).catch(() => {});
+        }
+        this.cachedNotifications = this.cachedNotifications.filter(n => n.formId !== payload.targetId);
+        this.notifyListeners({ notifications: this.cachedNotifications });
       } else if (payload.action === 'delete_all_records') {
         const snap = await getDocs(collection(db, 'p2h_records'));
         for (const d of snap.docs) {
           await deleteDoc(d.ref);
         }
         this.cachedRecords = [];
+        // Also delete all notifications from Firestore
+        const notifSnap = await getDocs(collection(db, 'notifications'));
+        for (const d of notifSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+        this.cachedNotifications = [];
+        this.notifyListeners({ notifications: [] });
       } else if (Array.isArray(payload.records)) {
         // Upsert incoming records without deleting existing records of other devices
         for (const record of payload.records) {
