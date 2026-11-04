@@ -230,7 +230,35 @@ export default function App() {
   useEffect(() => {
     // 1. Subscribe to realtime updates emitted by any device
     const unsubscribeData = realtimeSync.subscribe((payload) => {
-      if (Array.isArray(payload.records)) setP2hRecords(payload.records);
+      if (Array.isArray(payload.records)) {
+        setP2hRecords(prev => {
+          if (payload.action === 'delete_all_records') return [];
+          
+          let base = prev;
+          if (payload.action === 'delete_record' && payload.targetId) {
+            base = base.filter(r => r.id !== payload.targetId);
+          }
+          
+          if (payload.records!.length === 0) {
+            if (base.length > 0) {
+              return base;
+            }
+            return [];
+          }
+
+          const recordMap = new Map<string, P2HFormRecord>();
+          base.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
+          payload.records!.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
+
+          const merged = Array.from(recordMap.values());
+          merged.sort((a, b) => {
+            const dateA = a.date || a.createdAt || '';
+            const dateB = b.date || b.createdAt || '';
+            return dateB.localeCompare(dateA);
+          });
+          return merged;
+        });
+      }
       if (Array.isArray(payload.vehicles) && payload.vehicles.length > 0) setVehicles(payload.vehicles);
       if (Array.isArray(payload.notifications)) setNotifications(payload.notifications);
       if (Array.isArray(payload.users) && payload.users.length > 0) {
@@ -469,6 +497,28 @@ export default function App() {
     saveCompressed(STORAGE_KEYS.NOTIFICATIONS, []);
     realtimeSync.pushUpdate({ action: 'delete_all_records' });
     playTriggerSound();
+  };
+
+  // Handler: Import P2H Forms from CSV
+  const handleImportP2HRecords = (importedRecords: P2HFormRecord[]) => {
+    setP2hRecords(prev => {
+      const recordMap = new Map<string, P2HFormRecord>();
+      prev.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
+      importedRecords.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
+      const updated = Array.from(recordMap.values());
+      updated.sort((a, b) => {
+        const dateA = a.date || a.createdAt || '';
+        const dateB = b.date || b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      return updated;
+    });
+
+    realtimeSync.pushUpdate({
+      records: importedRecords
+    });
+
+    playSuccessChime();
   };
 
   // Handler: Add New Vehicle
@@ -1173,6 +1223,7 @@ export default function App() {
                 setActiveNav('p2h');
               }}
               onApproveRecord={formId => handleQuickApproveFromBell(formId)}
+              onImportRecords={handleImportP2HRecords}
             />
           )}
 

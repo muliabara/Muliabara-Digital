@@ -1,7 +1,7 @@
 // Realtime Cloud Synchronization Engine for Netlify <-> Google AI Studio <-> Mobile <-> PC
 // Powered by Google Cloud Firebase Firestore + BroadcastChannel + LocalStorage Persistence
 
-import { db, testConnection, handleQuotaExhausted } from './firebase';
+import { db, testConnection } from './firebase';
 import { 
   collection,
   doc,
@@ -12,9 +12,10 @@ import {
   getDocs,
   Unsubscribe 
 } from 'firebase/firestore';
-import { INITIAL_VEHICLES } from '../data/initialData';
+import { INITIAL_VEHICLES, INITIAL_P2H_RECORDS } from '../data/initialData';
 import { INITIAL_ACCOUNTS } from '../components/AccountProfileView';
 import { AppSettings, P2HFormRecord, VehicleUnit, UserProfile, NotificationItem } from '../types/p2h';
+import { getCompressed } from '../utils/storage';
 
 export interface SyncPayload {
   action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'delete_all_records' | 'delete_vehicle' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings' | 'delete_notification' | 'delete_user';
@@ -135,6 +136,29 @@ class RealtimeSyncManager {
             }
           });
 
+          // Auto-seed only once if Firestore p2h_records collection is completely empty
+          if (snapshot.empty && !this.hasReceivedInitialData) {
+            console.log('Seeding initial P2H records to Firestore...');
+            let recordsToSeed = INITIAL_P2H_RECORDS;
+            try {
+              const localSaved = getCompressed('jac_t9_p2h_records_v6');
+              if (Array.isArray(localSaved) && localSaved.length > 0) {
+                recordsToSeed = localSaved;
+              }
+            } catch {
+              // fallback
+            }
+            if (recordsToSeed.length > 0) {
+              this.seedInitialRecords(recordsToSeed);
+            }
+            this.cachedRecords = recordsToSeed;
+            this.hasReceivedInitialData = true;
+            this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            this.updateStatus('connected');
+            this.notifyListeners({ records: recordsToSeed });
+            return;
+          }
+
           // Sort records descending by date & updatedAt
           records.sort((a, b) => {
             const dateA = a.date || a.createdAt || '';
@@ -148,13 +172,9 @@ class RealtimeSyncManager {
           this.updateStatus('connected');
           this.notifyListeners({ records });
         },
-        (error: any) => {
-          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
-            handleQuotaExhausted();
-          } else {
-            console.warn('Firestore p2h_records stream error:', error);
-          }
-          this.updateStatus('connected');
+        (error) => {
+          console.warn('Firestore p2h_records stream error:', error);
+          this.updateStatus('offline');
         }
       );
       this.unsubscribers.push(unsubRecords);
@@ -191,12 +211,8 @@ class RealtimeSyncManager {
           this.updateStatus('connected');
           this.notifyListeners({ vehicles });
         },
-        (error: any) => {
-          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
-            handleQuotaExhausted();
-          } else {
-            console.warn('Firestore vehicles stream error:', error);
-          }
+        (error) => {
+          console.warn('Firestore vehicles stream error:', error);
         }
       );
       this.unsubscribers.push(unsubVehicles);
@@ -228,12 +244,8 @@ class RealtimeSyncManager {
           this.updateStatus('connected');
           this.notifyListeners({ users });
         },
-        (error: any) => {
-          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
-            handleQuotaExhausted();
-          } else {
-            console.warn('Firestore users stream error:', error);
-          }
+        (error) => {
+          console.warn('Firestore users stream error:', error);
         }
       );
       this.unsubscribers.push(unsubUsers);
@@ -252,12 +264,8 @@ class RealtimeSyncManager {
             this.notifyListeners({ settings: settingsData });
           }
         },
-        (error: any) => {
-          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
-            handleQuotaExhausted();
-          } else {
-            console.warn('Firestore settings stream error:', error);
-          }
+        (error) => {
+          console.warn('Firestore settings stream error:', error);
         }
       );
       this.unsubscribers.push(unsubSettings);
@@ -280,12 +288,8 @@ class RealtimeSyncManager {
           this.cachedNotifications = notifications;
           this.notifyListeners({ notifications });
         },
-        (error: any) => {
-          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
-            handleQuotaExhausted();
-          } else {
-            console.warn('Firestore notifications stream error:', error);
-          }
+        (error) => {
+          console.warn('Firestore notifications stream error:', error);
         }
       );
       this.unsubscribers.push(unsubNotifs);
@@ -293,6 +297,19 @@ class RealtimeSyncManager {
     } catch (err) {
       console.warn('Failed to initialize Firestore sync:', err);
       this.updateStatus('offline');
+    }
+  }
+
+  // Seed default P2H records if Firestore has none
+  private async seedInitialRecords(recordsToSeed: P2HFormRecord[]) {
+    try {
+      for (const rec of recordsToSeed) {
+        if (rec && rec.id) {
+          await setDoc(doc(db, 'p2h_records', String(rec.id)), sanitizeForFirestore(rec), { merge: true });
+        }
+      }
+    } catch (err) {
+      console.warn('Error seeding P2H records:', err);
     }
   }
 
@@ -393,55 +410,12 @@ class RealtimeSyncManager {
       timestamp: new Date().toISOString()
     };
 
-    // 1. Immediately update in-memory caches & broadcast locally to all open browser tabs
-    if (Array.isArray(payload.records)) {
-      const newRecs = [...this.cachedRecords];
-      for (const rec of payload.records) {
-        if (rec && rec.id) {
-          const idx = newRecs.findIndex(r => r.id === rec.id);
-          if (idx >= 0) newRecs[idx] = rec;
-          else newRecs.unshift(rec);
-        }
-      }
-      this.cachedRecords = newRecs;
-    }
-
-    if (Array.isArray(payload.vehicles)) {
-      const newVehs = [...this.cachedVehicles];
-      for (const veh of payload.vehicles) {
-        if (veh && veh.id) {
-          const idx = newVehs.findIndex(v => v.id === veh.id);
-          if (idx >= 0) newVehs[idx] = veh;
-          else newVehs.push(veh);
-        }
-      }
-      this.cachedVehicles = newVehs;
-    }
-
-    if (payload.settings && typeof payload.settings === 'object') {
-      this.cachedSettings = payload.settings;
-    }
-
-    if (Array.isArray(payload.notifications)) {
-      const newNotifs = [...this.cachedNotifications];
-      for (const notif of payload.notifications) {
-        if (notif && notif.id) {
-          const idx = newNotifs.findIndex(n => n.id === notif.id);
-          if (idx >= 0) newNotifs[idx] = notif;
-          else newNotifs.unshift(notif);
-        }
-      }
-      this.cachedNotifications = newNotifs;
-    }
-
+    // 1. Broadcast locally to all open browser tabs on same machine
     try {
       this.broadcastChannel?.postMessage({ state: enriched });
     } catch {
       // ignore
     }
-
-    // Always notify local listeners immediately
-    this.notifyListeners(enriched);
 
     // 2. Persist to Cloud Firestore via direct resilient writes
     try {
@@ -553,26 +527,27 @@ class RealtimeSyncManager {
         }
       }
 
+      // Heartbeat metadata
+      batch.set(doc(db, 'sync_meta', 'heartbeat'), {
+        version: enriched.version,
+        originId: this.clientId,
+        sourceDevice: enriched.sourceDevice,
+        updatedAt: enriched.timestamp
+      }, { merge: true });
+      ops++;
+
       if (ops > 0) {
-        try {
-          await batch.commit();
-        } catch (commitErr: any) {
-          if (commitErr?.code === 'resource-exhausted' || commitErr?.message?.includes('Quota limit exceeded')) {
-            console.warn('Firestore daily write quota limit reached. Update saved to local memory and browser broadcast channel.');
-          } else {
-            console.warn('Firestore write batch warning:', commitErr);
-          }
-        }
+        await batch.commit();
       }
 
       this.isConnected = true;
       this.updateStatus('connected');
-    } catch (err: any) {
-      if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-        console.warn('Firestore quota limit reached. Application functioning seamlessly in local tab mode.');
-      } else {
-        console.warn('Firestore real-time write exception:', err);
-      }
+      
+      // Notify listeners after successful write
+      this.notifyListeners(enriched);
+
+    } catch (err) {
+      console.error('Firestore real-time write error:', err);
       this.updateStatus('connected');
     }
 

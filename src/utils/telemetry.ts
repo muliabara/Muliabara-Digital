@@ -9,14 +9,12 @@ export interface EffectiveMetrics {
 
 /**
  * Calculates effective telemetry metrics for a P2H form record based on exact rules:
- * 1. Jika Baterai (SOC) awal > Baterai (SOC) akhir maka: Baterai (SOC) awal dikurangi Baterai (SOC) akhir (dalam kWh).
- * 2. Jika Baterai (SOC) awal < Baterai (SOC) akhir maka: Baterai (SOC) akhir (dalam kWh) dikurangi jumlah kWh Charging terisi.
+ * 1. Jika Baterai (SOC) awal > Baterai (SOC) akhir maka: SOC awal - SOC akhir (konversi ke kWh).
+ * 2. Jika Baterai (SOC) awal < Baterai (SOC) akhir maka: Jumlah energi (kWh) adalah SOC akhir dikurangi SOC awal (konversi ke kWh).
  */
 export function getEffectiveRecordMetrics(record: P2HFormRecord): EffectiveMetrics {
   const totalKm = Math.max(0, (record.endKm || 0) - (record.startKm || 0));
   const capacity = record.batteryCapacityKwh || 88.02;
-  const chargingPercent = record.charging?.percentCharged || 0;
-  const chargingKwh = record.charging?.energyAddedKwh ?? Number(((chargingPercent / 100) * capacity).toFixed(2));
   
   const startSoc = record.startSoc || 0;
   const endSoc = record.endSoc || 0;
@@ -24,25 +22,18 @@ export function getEffectiveRecordMetrics(record: P2HFormRecord): EffectiveMetri
   let energyConsumedKwh = 0;
   let batteryUsedPercent = 0;
 
-  if (startSoc > endSoc) {
-    // 1. Jika SOC awal > SOC akhir: SOC awal - SOC akhir (konversi ke kWh)
+  if (startSoc < endSoc) {
+    // Khusus jika SOC Baterai Awal < SOC Baterai Akhir:
+    // Jumlah energi (kWh) adalah SOC akhir dikurangi SOC awal
+    batteryUsedPercent = endSoc - startSoc;
+    energyConsumedKwh = Number(((batteryUsedPercent / 100) * capacity).toFixed(2));
+  } else if (startSoc > endSoc) {
+    // Jika SOC Baterai Awal > SOC Baterai Akhir
     batteryUsedPercent = startSoc - endSoc;
     energyConsumedKwh = Number(((batteryUsedPercent / 100) * capacity).toFixed(2));
-  } else if (startSoc < endSoc) {
-    // 2. Jika SOC awal < SOC akhir: SOC akhir (kWh) dikurangi jumlah kWh Charging terisi
-    const endSocKwh = (endSoc / 100) * capacity;
-    energyConsumedKwh = Number(Math.max(0, endSocKwh - chargingKwh).toFixed(2));
-    batteryUsedPercent = Number(((energyConsumedKwh / capacity) * 100).toFixed(1));
   } else {
-    // Jika startSoc == endSoc
-    if (chargingKwh > 0) {
-      const endSocKwh = (endSoc / 100) * capacity;
-      energyConsumedKwh = Number(Math.max(0, endSocKwh - chargingKwh).toFixed(2));
-      batteryUsedPercent = Number(((energyConsumedKwh / capacity) * 100).toFixed(1));
-    } else {
-      energyConsumedKwh = 0;
-      batteryUsedPercent = 0;
-    }
+    batteryUsedPercent = 0;
+    energyConsumedKwh = 0;
   }
 
   const consumptionRateKwhPerKm = totalKm > 0 ? Number((energyConsumedKwh / totalKm).toFixed(3)) : 0;

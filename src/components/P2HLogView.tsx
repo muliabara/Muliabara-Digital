@@ -8,6 +8,9 @@ import {
   Printer, 
   Eye, 
   Download, 
+  Upload,
+  FileSpreadsheet,
+  Check,
   CheckCircle, 
   Clock, 
   AlertTriangle, 
@@ -35,6 +38,7 @@ interface P2HLogViewProps {
   onDownloadPdfRecord: (record: P2HFormRecord) => void;
   onCreateNew: () => void;
   onApproveRecord?: (formId: string) => void;
+  onImportRecords?: (importedRecords: P2HFormRecord[]) => void;
 }
 
 export const P2HLogView: React.FC<P2HLogViewProps> = ({
@@ -48,7 +52,8 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
   onPrintRecord,
   onDownloadPdfRecord,
   onCreateNew,
-  onApproveRecord
+  onApproveRecord,
+  onImportRecords
 }) => {
   const glassCard = getGlassCardClass(settings);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'Master Admin';
@@ -62,6 +67,271 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
   const [endDate, setEndDate] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFileName, setUploadFileName] = useState<string>('');
+  const [parsedImportRecords, setParsedImportRecords] = useState<P2HFormRecord[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+
+  const handleDownloadCsvTemplate = () => {
+    const headers = [
+      'Tanggal',
+      'Shift',
+      'No Unit',
+      'Model Unit',
+      'Operator',
+      'NIK Operator',
+      'KM Awal',
+      'KM Akhir',
+      'SOC Awal (%)',
+      'SOC Akhir (%)',
+      'Charging Terisi (%)',
+      'Charging Terisi (kWh)',
+      'Lokasi Worksite',
+      'Status P2H'
+    ];
+
+    const sampleRow1 = [
+      '2026-11-04',
+      'Shift 1 (Siang)',
+      'LV-EV-01',
+      'JAC T9 EV 4x4 Double Cabin',
+      'Budi Santoso',
+      'OPR-8821',
+      '12400',
+      '12480',
+      '100',
+      '82',
+      '80',
+      '70.42',
+      'Pit Utara - Mining Sector A',
+      'approved'
+    ];
+
+    const sampleRow2 = [
+      '2026-11-04',
+      'Shift 2 (Malam)',
+      'LV-EV-02',
+      'JAC T9 EV 4x4 Double Cabin',
+      'Ahmad Fauzi',
+      'OPR-8822',
+      '5120',
+      '5200',
+      '94',
+      '78',
+      '0',
+      '0',
+      'Central Workshop - Main Yard',
+      'pending_approval'
+    ];
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), sampleRow1.join(','), sampleRow2.join(',')].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'Template_Import_Log_P2H_JAC_T9_EV.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        parseCsvText(content);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const parseCsvText = (text: string) => {
+    setImportError(null);
+    setParsedImportRecords([]);
+
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length < 2) {
+      setImportError('File CSV tidak memiliki baris data (minimal 1 baris header dan 1 baris data).');
+      return;
+    }
+
+    const parseLine = (line: string): string[] => {
+      const result: string[] = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"' || char === "'") {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(cur.trim());
+          cur = '';
+        } else {
+          cur += char;
+        }
+      }
+      result.push(cur.trim());
+      return result.map(s => s.replace(/^["']|["']$/g, ''));
+    };
+
+    const header = parseLine(lines[0]).map(h => h.toLowerCase());
+    
+    const findIdx = (keywords: string[], fallbackIdx: number) => {
+      const idx = header.findIndex(h => keywords.some(k => h.includes(k)));
+      return idx !== -1 ? idx : fallbackIdx;
+    };
+
+    const dateIdx = findIdx(['tanggal', 'date'], 0);
+    const shiftIdx = findIdx(['shift'], 1);
+    const unitIdx = findIdx(['no unit', 'unit', 'nomor unit'], 2);
+    const modelIdx = findIdx(['model'], 3);
+    const operatorIdx = findIdx(['operator', 'nama operator', 'driver'], 4);
+    const nikIdx = findIdx(['nik'], 5);
+    const startKmIdx = findIdx(['km awal', 'start km'], 6);
+    const endKmIdx = findIdx(['km akhir', 'end km'], 7);
+    const startSocIdx = findIdx(['soc awal', 'start soc'], 8);
+    const endSocIdx = findIdx(['soc akhir', 'end soc'], 9);
+    const chargingPercentIdx = findIdx(['charging terisi (%)', 'charging %', 'cas %'], 10);
+    const chargingKwhIdx = findIdx(['charging terisi (kwh)', 'charging kwh', 'cas kwh'], 11);
+    const locationIdx = findIdx(['lokasi', 'worksite', 'site'], 12);
+    const statusIdx = findIdx(['status'], 13);
+
+    const newRecords: P2HFormRecord[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const row = parseLine(lines[i]);
+      if (row.length < 3) continue;
+
+      const rowDate = row[dateIdx] || new Date().toISOString().split('T')[0];
+      const rawShift = row[shiftIdx] || '';
+      const shift = rawShift.toLowerCase().includes('malam') || rawShift.includes('2') 
+        ? 'Shift 2 (Malam)' 
+        : 'Shift 1 (Siang)';
+
+      const unitNumber = row[unitIdx] || 'LV-EV-01';
+      const unitModel = row[modelIdx] || 'JAC T9 EV 4x4 Double Cabin';
+      const operatorName = row[operatorIdx] || 'Operator Tambang';
+      const operatorNik = row[nikIdx] || `OPR-${Math.floor(1000 + Math.random() * 9000)}`;
+      
+      const startKm = Math.max(0, parseInt(row[startKmIdx], 10) || 1000);
+      const endKm = Math.max(startKm, parseInt(row[endKmIdx], 10) || (startKm + 45));
+      const totalKm = endKm - startKm;
+
+      const startSoc = Math.min(100, Math.max(0, parseInt(row[startSocIdx], 10) || 100));
+      const endSoc = Math.min(startSoc, Math.max(0, parseInt(row[endSocIdx], 10) || 82));
+      const batteryUsedPercent = Math.max(0, startSoc - endSoc);
+      const energyConsumedKwh = Number(((batteryUsedPercent / 100) * 88.02).toFixed(2));
+      const consumptionRateKwhPerKm = totalKm > 0 ? Number((energyConsumedKwh / totalKm).toFixed(2)) : 0;
+
+      const percentCharged = Math.min(100, Math.max(0, parseInt(row[chargingPercentIdx], 10) || 0));
+      const energyAddedKwh = parseFloat(row[chargingKwhIdx]) || Number(((percentCharged / 100) * 88.02).toFixed(2));
+
+      const workLocation = row[locationIdx] || 'Pit Utama Tambang Kutai';
+      const rawStatus = (row[statusIdx] || '').toLowerCase();
+
+      let overallStatus: P2HFormRecord['overallStatus'] = 'approved';
+      if (rawStatus.includes('pending') || rawStatus.includes('menunggu')) {
+        overallStatus = 'pending_approval';
+      } else if (rawStatus.includes('mekanik') || rawStatus.includes('maintenance')) {
+        overallStatus = 'needs_maintenance';
+      } else if (rawStatus.includes('ditolak') || rawStatus.includes('reject')) {
+        overallStatus = 'rejected';
+      }
+
+      const recId = `p2h-imp-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
+      const nowIso = new Date().toISOString();
+
+      const record: P2HFormRecord = {
+        id: recId,
+        docNumber: 'F-QHSE-OPS-MOB-09',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        date: rowDate,
+        shift,
+        unitNumber,
+        unitModel,
+        equipmentType: 'Light Vehicle (EV)',
+        operatorName,
+        operatorNik,
+        workLocation,
+        jobSite: 'Tambang Kutai',
+        skoExpiryDate: '2027-12-31',
+        startKm,
+        endKm,
+        totalKm,
+        startSoc,
+        endSoc,
+        batteryCapacityKwh: 88.02,
+        batteryUsedPercent,
+        energyConsumedKwh,
+        consumptionRateKwhPerKm,
+        costSavingsIdr: Math.round(totalKm * 2300),
+        co2ReductionKg: Number((totalKm * 0.175).toFixed(2)),
+        charging: {
+          percentCharged,
+          energyAddedKwh,
+          estimatedRangeKm: Math.round((percentCharged / 100) * 400),
+          chargingLocation: 'SPKLU Site Tambang'
+        },
+        driverCondition: {
+          idCardExpiry: '2028-12-31',
+          simperExpiry: '2027-12-31',
+          items: { item_1: 'ya', item_2: 'ya', item_3: 'ya' },
+          notes: {}
+        },
+        inspections: {
+          check_skid_plate: { status: 'normal' },
+          check_battery_harness: { status: 'normal' },
+          check_ccs2_socket: { status: 'normal' }
+        },
+        overallStatus,
+        hasAbnormalCritical: false,
+        hasAbnormalNonCritical: false,
+        mechanicRecommendation: {
+          status: 'continue_operation',
+          reason: 'Hasil impor data massal.',
+          mechanicName: 'Irwan Setiawan',
+          mechanicNik: 'MECH-004'
+        },
+        foremanApproval: {
+          status: overallStatus === 'approved' ? 'approved' : 'pending',
+          notes: 'Impor Data Massal CSV',
+          foremanName: currentUser?.name || 'Foreman Tambang',
+          foremanNik: currentUser?.nik || 'SPV-101',
+          approvedAt: overallStatus === 'approved' ? new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA' : undefined
+        },
+        operatorSignature: {
+          agreed: true,
+          submittedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA'
+        }
+      };
+
+      newRecords.push(record);
+    }
+
+    if (newRecords.length === 0) {
+      setImportError('Tidak ada baris data valid yang dapat diproses dari file CSV ini.');
+    } else {
+      setParsedImportRecords(newRecords);
+    }
+  };
+
+  const confirmImport = () => {
+    if (parsedImportRecords.length > 0 && onImportRecords) {
+      onImportRecords(parsedImportRecords);
+      setImportSuccessMsg(`Berhasil mengimpor ${parsedImportRecords.length} data formulir P2H ke sistem!`);
+      setTimeout(() => {
+        setImportSuccessMsg(null);
+        setShowUploadModal(false);
+        setUploadFileName('');
+        setParsedImportRecords([]);
+      }, 1200);
+    }
+  };
 
   // Filtered records
   const filteredRecords = useMemo(() => {
@@ -188,6 +458,14 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               <span>Ekspor CSV</span>
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl transition-colors cursor-pointer shadow-soft-xxs"
+              title="Unggah / Impor data log P2H dari file CSV secara massal"
+            >
+              <Upload className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Upload Data CSV</span>
             </button>
             <button
               onClick={onCreateNew}
@@ -724,6 +1002,184 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                 className="px-4 py-2 font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs cursor-pointer"
               >
                 Ya, Hapus Semua Log
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD & IMPORT DATA CSV MODAL */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-5 my-8">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3 text-emerald-600">
+                <div className="p-2.5 bg-emerald-100 rounded-xl">
+                  <FileSpreadsheet className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base sm:text-lg">
+                    Upload & Impor Data Log P2H
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Unggah file CSV untuk mengimpor banyak riwayat formulir P2H JAC T9 EV sekaligus.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setParsedImportRecords([]);
+                  setImportError(null);
+                  setUploadFileName('');
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Success Toast */}
+            {importSuccessMsg && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{importSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Template Download Banner */}
+            <div className="p-4 bg-sky-50/80 border border-sky-200/80 rounded-xl text-xs space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-bold text-sky-900">Format File CSV Yang Didukung:</span>
+                <button
+                  type="button"
+                  onClick={handleDownloadCsvTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-sky-700 font-bold rounded-lg border border-sky-300 shadow-soft-xxs hover:bg-sky-50 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Unduh Contoh Template CSV</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-sky-700 leading-relaxed font-mono">
+                Header kolom: Tanggal, Shift, No Unit, Model Unit, Operator, NIK Operator, KM Awal, KM Akhir, SOC Awal (%), SOC Akhir (%), Charging Terisi (%), Charging Terisi (kWh), Lokasi Worksite, Status P2H
+              </p>
+            </div>
+
+            {/* File Dropzone / Input */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">
+                Pilih File Data CSV (.csv)
+              </label>
+              <div className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-6 text-center transition-colors bg-slate-50/50 hover:bg-emerald-50/20">
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="csv-file-upload-input"
+                />
+                <label
+                  htmlFor="csv-file-upload-input"
+                  className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                >
+                  <Upload className="w-8 h-8 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-800">
+                    {uploadFileName ? `File Terpilih: ${uploadFileName}` : 'Klik untuk Memilih File CSV dari Perangkat'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Format file harus berencoding UTF-8 dengan pemisah koma (,)
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Import Error Message */}
+            {importError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2 font-medium">
+                <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            {/* Parsed Preview Table */}
+            {parsedImportRecords.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">
+                    Preview Hasil Parsing ({parsedImportRecords.length} Data Siap Diimpor)
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    Format Valid
+                  </span>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto overflow-x-auto border border-slate-200 rounded-xl text-[11px]">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0">
+                      <tr>
+                        <th className="py-2 px-3">Tanggal</th>
+                        <th className="py-2 px-3">Unit</th>
+                        <th className="py-2 px-3">Operator</th>
+                        <th className="py-2 px-3 text-right">KM</th>
+                        <th className="py-2 px-3 text-center">SOC</th>
+                        <th className="py-2 px-3 text-center">Charging</th>
+                        <th className="py-2 px-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono">
+                      {parsedImportRecords.slice(0, 5).map((rec, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2 px-3">{rec.date}</td>
+                          <td className="py-2 px-3 font-bold text-slate-900">{rec.unitNumber}</td>
+                          <td className="py-2 px-3 font-sans text-slate-800">{rec.operatorName}</td>
+                          <td className="py-2 px-3 text-right">{rec.startKm} → {rec.endKm}</td>
+                          <td className="py-2 px-3 text-center">{rec.startSoc}% → {rec.endSoc}%</td>
+                          <td className="py-2 px-3 text-center text-emerald-600 font-bold">
+                            {rec.charging && rec.charging.percentCharged > 0 ? `+${rec.charging.percentCharged}%` : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                              {rec.overallStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {parsedImportRecords.length > 5 && (
+                    <div className="p-2 text-center text-[10px] text-slate-400 bg-slate-50 italic">
+                      + {parsedImportRecords.length - 5} data baris tambahan lainnya akan ikut diimpor.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setParsedImportRecords([]);
+                  setImportError(null);
+                  setUploadFileName('');
+                }}
+                className="px-4 py-2 font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+              >
+                Batal
+              </button>
+
+              <button
+                type="button"
+                disabled={parsedImportRecords.length === 0}
+                onClick={confirmImport}
+                className="px-5 py-2 font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>Impor {parsedImportRecords.length} Data Log</span>
               </button>
             </div>
           </div>
