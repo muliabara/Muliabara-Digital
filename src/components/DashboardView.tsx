@@ -38,6 +38,7 @@ interface DashboardViewProps {
   onUpdateSettings?: (newSettings: AppSettings) => void;
   onNavigate: (nav: 'dashboard' | 'p2h' | 'log' | 'charging_log' | 'units' | 'account' | 'settings') => void;
   onCreateP2H: () => void;
+  onApproveRecord?: (formId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -47,9 +48,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   currentUser,
   onUpdateSettings,
   onNavigate,
-  onCreateP2H
+  onCreateP2H,
+  onApproveRecord
 }) => {
   const glassCard = getGlassCardClass(settings);
+  const canApprove = ['master admin', 'admin', 'foreman', 'pengawas'].includes(
+    (currentUser?.role || '').toLowerCase().trim()
+  );
 
   // Filters & State
   const [selectedUnit, setSelectedUnit] = useState<string>('all');
@@ -704,9 +709,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           Ditolak
                         </span>
                       ) : (
-                        <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                          Menunggu
-                        </span>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                            Menunggu
+                          </span>
+                          {onApproveRecord && canApprove && (
+                            <button
+                              type="button"
+                              onClick={() => onApproveRecord(rec.id)}
+                              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[10px] shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Setujui (Approve) Formulir P2H"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Approve</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>

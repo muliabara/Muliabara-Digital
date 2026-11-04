@@ -33,6 +33,7 @@ interface P2HLogViewProps {
   onPrintRecord: (record: P2HFormRecord) => void;
   onDownloadPdfRecord: (record: P2HFormRecord) => void;
   onCreateNew: () => void;
+  onApproveRecord?: (formId: string) => void;
 }
 
 export const P2HLogView: React.FC<P2HLogViewProps> = ({
@@ -45,10 +46,14 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
   onDeleteAllRecords,
   onPrintRecord,
   onDownloadPdfRecord,
-  onCreateNew
+  onCreateNew,
+  onApproveRecord
 }) => {
   const glassCard = getGlassCardClass(settings);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'Master Admin';
+  const canApprove = ['master admin', 'admin', 'foreman', 'pengawas'].includes(
+    (currentUser?.role || '').toLowerCase().trim()
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -337,10 +342,22 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                     </span>
                   )}
                   {record.overallStatus === 'pending_approval' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                      <Clock className="w-3 h-3 text-amber-600" />
-                      Pending
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        Pending
+                      </span>
+                      {onApproveRecord && canApprove && (
+                        <button
+                          type="button"
+                          onClick={() => onApproveRecord(record.id)}
+                          className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[10px] shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          Approve
+                        </button>
+                      )}
+                    </div>
                   )}
                   {record.overallStatus === 'needs_maintenance' && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
@@ -512,10 +529,23 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                           </span>
                         )}
                         {record.overallStatus === 'pending_approval' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            Review Foreman
-                          </span>
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              Review Foreman
+                            </span>
+                            {onApproveRecord && canApprove && (
+                              <button
+                                type="button"
+                                onClick={() => onApproveRecord(record.id)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                title="Approve P2H Sekarang"
+                              >
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                <span>Approve</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                         {record.overallStatus === 'needs_maintenance' && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md">

@@ -359,47 +359,31 @@ export default function App() {
 
     const isApproved = savedForm.overallStatus === 'approved' || savedForm.foremanApproval?.status === 'approved';
 
-    let notifItemToPush: NotificationItem | undefined = undefined;
-    let notificationsToDelete: string[] = [];
+    let notifItemToPush: NotificationItem = {
+      id: `notif_${savedForm.id}`,
+      title: isApproved ? `✅ P2H ${savedForm.unitNumber} Disetujui` : `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
+      message: `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Status: ${isApproved ? 'Disetujui' : 'Menunggu Approval'}.`,
+      timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA',
+      type: isApproved ? 'p2h_approved' : 'p2h_submitted',
+      read: false,
+      formId: savedForm.id,
+      unitNumber: savedForm.unitNumber,
+      operatorName: savedForm.operatorName,
+      targetRole: 'admin'
+    };
 
     setNotifications(prev => {
-      // Find and remove any existing notification for this form
-      const existingForForm = prev.filter(n => n.formId === savedForm.id);
-      notificationsToDelete = existingForForm.map(n => n.id);
-      
       const otherNotifs = prev.filter(n => n.formId !== savedForm.id);
-
-      if (isApproved) {
-        // If approved, we don't need a new notification (it should "hilang")
-        return otherNotifs;
-      } else {
-        // If pending, create/refresh the notification
-        const newItem: NotificationItem = {
-          id: `notif_${savedForm.id}`,
-          title: `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
-          message: `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Menunggu persetujuan resmi Foreman/Pengawas/Admin.`,
-          timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA',
-          type: 'p2h_submitted',
-          read: false,
-          formId: savedForm.id,
-          unitNumber: savedForm.unitNumber,
-          operatorName: savedForm.operatorName,
-          targetRole: 'admin'
-        };
-        notifItemToPush = newItem;
-        return [newItem, ...otherNotifs];
-      }
+      return [notifItemToPush, ...otherNotifs];
     });
 
     const changedVehicle = updatedVehicles.find(v => v.unitNumber === savedForm.unitNumber);
 
-    // Realtime sync delta only - prevents stale data from other devices being overwritten
+    // Realtime sync delta - pushes record and notification to Firestore so all devices receive update instantly
     realtimeSync.pushUpdate({
       records: [savedForm],
       vehicles: changedVehicle ? [changedVehicle] : undefined,
-      notifications: notifItemToPush ? [notifItemToPush] : undefined,
-      action: (isApproved && notificationsToDelete.length) ? 'delete_notification' : undefined,
-      targetId: (isApproved && notificationsToDelete.length) ? notificationsToDelete : undefined
+      notifications: [notifItemToPush]
     });
 
     setEditingForm(null);
@@ -1150,6 +1134,7 @@ export default function App() {
                 setEditingForm(null);
                 setActiveNav('p2h');
               }}
+              onApproveRecord={formId => handleQuickApproveFromBell(formId)}
             />
           )}
 
@@ -1187,6 +1172,7 @@ export default function App() {
                 setEditingForm(null);
                 setActiveNav('p2h');
               }}
+              onApproveRecord={formId => handleQuickApproveFromBell(formId)}
             />
           )}
 
