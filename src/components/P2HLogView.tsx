@@ -21,6 +21,7 @@ import {
   AlertOctagon
 } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
+import { getEffectiveRecordMetrics } from '../utils/telemetry';
 
 interface P2HLogViewProps {
   records: P2HFormRecord[];
@@ -95,8 +96,9 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
     let totalKm = 0;
     let totalKwh = 0;
     records.forEach(r => {
-      totalKm += r.totalKm;
-      totalKwh += r.energyConsumedKwh;
+      const eff = getEffectiveRecordMetrics(r);
+      totalKm += eff.totalKm;
+      totalKwh += eff.energyConsumedKwh;
     });
     return {
       totalForms: records.length,
@@ -113,16 +115,21 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
       'ID Form', 'No Dokumen', 'Tanggal', 'Shift', 'No Unit', 'Model Unit',
       'Operator', 'NIK Operator', 'KM Awal', 'KM Akhir', 'Total KM',
       'SOC Awal (%)', 'SOC Akhir (%)', 'Baterai Terpakai (%)', 'Konsumsi (kWh)',
-      'Efisiensi (kWh/km)', 'Status P2H', 'Foreman Approver', 'Foreman Status'
+      'Efisiensi (kWh/km)', 'Charging Terisi (%)', 'Charging Terisi (kWh)', 'Status P2H', 'Foreman Approver', 'Foreman Status'
     ];
 
-    const rows = filteredRecords.map(r => [
-      `"${r.id}"`, `"${r.docNumber}"`, `"${r.date}"`, `"${r.shift}"`,
-      `"${r.unitNumber}"`, `"${r.unitModel}"`, `"${r.operatorName}"`, `"${r.operatorNik}"`,
-      r.startKm, r.endKm, r.totalKm, r.startSoc, r.endSoc, r.batteryUsedPercent,
-      r.energyConsumedKwh, r.consumptionRateKwhPerKm, `"${r.overallStatus}"`,
-      `"${r.foremanApproval.foremanName || '-'}"`, `"${r.foremanApproval.status}"`
-    ]);
+    const rows = filteredRecords.map(r => {
+      const eff = getEffectiveRecordMetrics(r);
+      return [
+        `"${r.id}"`, `"${r.docNumber}"`, `"${r.date}"`, `"${r.shift}"`,
+        `"${r.unitNumber}"`, `"${r.unitModel}"`, `"${r.operatorName}"`, `"${r.operatorNik}"`,
+        r.startKm, r.endKm, eff.totalKm, r.startSoc, r.endSoc, eff.batteryUsedPercent,
+        eff.energyConsumedKwh, eff.consumptionRateKwhPerKm,
+        r.charging?.percentCharged || 0, r.charging?.energyAddedKwh || 0,
+        `"${r.overallStatus}"`,
+        `"${r.foremanApproval.foremanName || '-'}"`, `"${r.foremanApproval.status}"`
+      ];
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -316,130 +323,137 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
             Tidak ada catatan Log P2H yang sesuai dengan kriteria filter.
           </div>
         ) : (
-          filteredRecords.map((record, index) => (
-            <div 
-              key={`m-${record.id}-${index}`}
-              className={`${glassCard} p-4 space-y-3 font-sans`}
-            >
-              {/* Card Header: Unit & Status */}
-              <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono font-black text-slate-900 text-sm">{record.unitNumber}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">({record.shift})</span>
-                  </div>
-                  <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                    <Calendar className="w-3 h-3 text-slate-400" />
-                    {record.date}
-                  </span>
-                </div>
-
-                <div>
-                  {record.overallStatus === 'approved' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                      <CheckCircle className="w-3 h-3 text-emerald-600" />
-                      Approved
-                    </span>
-                  )}
-                  {record.overallStatus === 'pending_approval' && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                        <Clock className="w-3 h-3 text-amber-600" />
-                        Pending
-                      </span>
-                      {onApproveRecord && canApprove && (
-                        <button
-                          type="button"
-                          onClick={() => onApproveRecord(record.id)}
-                          className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[10px] shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          Approve
-                        </button>
-                      )}
+          filteredRecords.map((record, index) => {
+            const eff = getEffectiveRecordMetrics(record);
+            return (
+              <div 
+                key={`m-${record.id}-${index}`}
+                className={`${glassCard} p-4 space-y-3 font-sans`}
+              >
+                {/* Card Header: Unit & Status */}
+                <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-black text-slate-900 text-sm">{record.unitNumber}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">({record.shift})</span>
                     </div>
-                  )}
-                  {record.overallStatus === 'needs_maintenance' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
-                      <AlertTriangle className="w-3 h-3 text-rose-600" />
-                      Mekanik
+                    <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                      <Calendar className="w-3 h-3 text-slate-400" />
+                      {record.date}
                     </span>
-                  )}
+                  </div>
+
+                  <div>
+                    {record.overallStatus === 'approved' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        <CheckCircle className="w-3 h-3 text-emerald-600" />
+                        Approved
+                      </span>
+                    )}
+                    {record.overallStatus === 'pending_approval' && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          Pending
+                        </span>
+                        {onApproveRecord && canApprove && (
+                          <button
+                            type="button"
+                            onClick={() => onApproveRecord(record.id)}
+                            className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[10px] shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Approve
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {record.overallStatus === 'needs_maintenance' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                        Mekanik
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Driver & Location */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Driver / Operator</span>
+                    <span className="font-bold text-slate-900 block truncate">{record.operatorName}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{record.operatorNik}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Lokasi Worksite</span>
+                    <span className="font-medium text-slate-800 block truncate">{record.workLocation || '-'}</span>
+                  </div>
+                </div>
+
+                {/* Telemetry Metrics Grid */}
+                <div className="grid grid-cols-4 gap-1.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs">
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-medium">Odometer</span>
+                    <span className="font-mono font-bold text-slate-900 block text-[10px]">+{eff.totalKm} KM</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-medium">Baterai (SOC)</span>
+                    <span className="font-mono font-bold text-amber-600 block text-[10px]">{record.startSoc}% → {record.endSoc}%</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-medium">Konsumsi</span>
+                    <span className="font-mono font-bold text-sky-700 block text-[10px]">{eff.energyConsumedKwh} kWh</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-medium">Charging</span>
+                    <span className="font-mono font-bold text-emerald-600 block text-[10px]">
+                      {record.charging && record.charging.percentCharged > 0
+                        ? `+${record.charging.percentCharged}% (${record.charging.energyAddedKwh} kWh)`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mobile Actions Toolbar */}
+                <div className="flex items-center justify-between gap-1.5 pt-1 text-xs">
+                  <button
+                    onClick={() => onEditRecord(record)}
+                    className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg transition-colors flex items-center justify-center gap-1 text-[11px]"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit</span>
+                  </button>
+
+                  <button
+                    onClick={() => onDownloadPdfRecord(record)}
+                    className="flex-1 py-1.5 px-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-lg border border-sky-200 transition-colors flex items-center justify-center gap-1 text-[11px]"
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                    <span>Download PDF</span>
+                  </button>
+
+                  <button
+                    onClick={() => onPrintRecord(record)}
+                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                    title="Print"
+                  >
+                    <Printer className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => setDeleteTargetId(record.id)}
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                    title="Hapus"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-
-              {/* Driver & Location */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Driver / Operator</span>
-                  <span className="font-bold text-slate-900 block truncate">{record.operatorName}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{record.operatorNik}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Lokasi Worksite</span>
-                  <span className="font-medium text-slate-800 block truncate">{record.workLocation || '-'}</span>
-                </div>
-              </div>
-
-              {/* Telemetry Metrics Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Odometer</span>
-                  <span className="font-mono font-bold text-slate-900 block text-[11px]">+{record.totalKm} KM</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Baterai (SOC)</span>
-                  <span className="font-mono font-bold text-slate-800 block text-[11px]">{record.startSoc}% → {record.endSoc}%</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Charging & Final SOC</span>
-                  <span className="font-mono font-bold text-emerald-700 block text-[11px]">+{record.charging?.percentCharged || 0}% ({Math.min(100, record.endSoc + (record.charging?.percentCharged || 0))}%)</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Konsumsi</span>
-                  <span className="font-mono font-bold text-sky-700 block text-[11px]">{record.energyConsumedKwh} kWh</span>
-                </div>
-              </div>
-
-              {/* Mobile Actions Toolbar */}
-              <div className="flex items-center justify-between gap-1.5 pt-1 text-xs">
-                <button
-                  onClick={() => onEditRecord(record)}
-                  className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg transition-colors flex items-center justify-center gap-1 text-[11px]"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Edit</span>
-                </button>
-
-                <button
-                  onClick={() => onDownloadPdfRecord(record)}
-                  className="flex-1 py-1.5 px-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-lg border border-sky-200 transition-colors flex items-center justify-center gap-1 text-[11px]"
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
-                </button>
-
-                <button
-                  onClick={() => onPrintRecord(record)}
-                  className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                  title="Print"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
-
-                <button
-                  onClick={() => setDeleteTargetId(record.id)}
-                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
-                  title="Hapus"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -469,7 +483,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                 <th className="py-3 px-3 text-right font-mono">HM/KM</th>
                 <th className="py-3 px-3 text-center">Baterai (SOC)</th>
                 <th className="py-3 px-4 text-right font-mono font-bold text-sky-700">Energi (kWh)</th>
-                <th className="py-3 px-3 text-center">Charging & SOC Akhir</th>
+                <th className="py-3 px-3 text-center font-mono font-bold text-amber-600">Charging Terisi</th>
                 <th className="py-3 px-4 text-center">Status P2H</th>
                 <th className="py-3 px-4 text-center">Aksi Dokumen</th>
               </tr>
@@ -483,6 +497,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                 </tr>
               ) : (
                 filteredRecords.map((record, index) => {
+                  const eff = getEffectiveRecordMetrics(record);
                   return (
                     <tr key={`${record.id}-${index}`} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4">
@@ -505,32 +520,41 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                       <td className="py-3.5 px-3 text-right font-mono tabular-nums text-slate-700">
                         <div>{record.startKm} → {record.endKm}</div>
                         <span className="text-[10px] text-slate-400 font-bold">
-                          +{record.totalKm} KM
+                          +{eff.totalKm} KM
                         </span>
                       </td>
 
                       <td className="py-3.5 px-3 text-center">
-                        <div className="font-mono font-bold text-slate-800">
+                        <div className="font-mono text-slate-800">
                           {record.startSoc}% → {record.endSoc}%
                         </div>
+                        <span className="text-[10px] text-amber-600 font-semibold block">
+                          Terpakai {eff.batteryUsedPercent}%
+                        </span>
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
                         <span className="text-sm font-bold font-mono text-sky-700 tabular-nums block">
-                          {record.energyConsumedKwh} kWh
+                          {eff.energyConsumedKwh} kWh
                         </span>
                         <span className="text-[10px] text-emerald-600 font-mono">
-                          {record.consumptionRateKwhPerKm} kWh/km
+                          {eff.consumptionRateKwhPerKm} kWh/km
                         </span>
                       </td>
 
-                      <td className="py-3.5 px-3 text-center font-mono">
-                        <span className="text-emerald-700 font-bold block text-xs">
-                          +{record.charging?.percentCharged || 0}% <span className="text-[10px] text-slate-500 font-normal">({record.charging?.energyAddedKwh || 0} kWh)</span>
-                        </span>
-                        <span className="text-[10px] text-slate-600 font-semibold block">
-                          SOC Akhir Total: {Math.min(100, record.endSoc + (record.charging?.percentCharged || 0))}%
-                        </span>
+                      <td className="py-3.5 px-3 text-center">
+                        {record.charging && record.charging.percentCharged > 0 ? (
+                          <div>
+                            <span className="text-xs font-extrabold font-mono text-amber-600 tabular-nums block">
+                              +{record.charging.percentCharged}%
+                            </span>
+                            <span className="text-[10px] text-emerald-600 font-mono font-bold block">
+                              +{record.charging.energyAddedKwh} kWh
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-mono italic">-</span>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 text-center">

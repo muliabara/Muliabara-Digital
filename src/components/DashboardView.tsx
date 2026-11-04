@@ -29,6 +29,7 @@ import {
   X
 } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
+import { getEffectiveRecordMetrics } from '../utils/telemetry';
 
 interface DashboardViewProps {
   vehicles: VehicleUnit[];
@@ -110,7 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [records, selectedUnit, selectedMonth, selectedYear]);
 
   // KPI Metrics calculated strictly from filtered records
-  const totalKwh = filteredRecords.reduce((acc, r) => acc + (r.energyConsumedKwh || 0), 0);
+  const totalKwh = filteredRecords.reduce((acc, r) => acc + (getEffectiveRecordMetrics(r).energyConsumedKwh || 0), 0);
   const totalKm = filteredRecords.reduce((acc, r) => acc + (r.totalKm || 0), 0);
   const totalCo2 = filteredRecords.reduce((acc, r) => acc + (r.co2ReductionKg || 0), 0);
   const totalSavings = filteredRecords.reduce((acc, r) => acc + (r.costSavingsIdr || 0), 0);
@@ -149,7 +150,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return cleanDate === targetDateStr;
       });
 
-      const kwh = dayRecords.reduce((acc, r) => acc + (r.energyConsumedKwh || 0), 0);
+      const kwh = dayRecords.reduce((acc, r) => acc + (getEffectiveRecordMetrics(r).energyConsumedKwh || 0), 0);
       const km = dayRecords.reduce((acc, r) => acc + (r.totalKm || 0), 0);
       const chargingKwh = dayRecords.reduce((acc, r) => acc + (r.charging?.energyAddedKwh || 0), 0);
       const savings = dayRecords.reduce((acc, r) => acc + (r.costSavingsIdr || 0), 0);
@@ -670,34 +671,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {recentRecords.map(rec => (
-                  <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-[10px] shrink-0 font-mono shadow-soft-xxs">
-                          EV
+                {recentRecords.map(rec => {
+                  const eff = getEffectiveRecordMetrics(rec);
+                  return (
+                    <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-[10px] shrink-0 font-mono shadow-soft-xxs">
+                            EV
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-slate-800 block font-mono text-xs">{rec.unitNumber}</span>
+                            <span className="text-[10px] text-slate-400 truncate block max-w-28">{rec.date} ({rec.shift})</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-extrabold text-slate-800 block font-mono text-xs">{rec.unitNumber}</span>
-                          <span className="text-[10px] text-slate-400 truncate block max-w-28">{rec.date} ({rec.shift})</span>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="py-3 px-3">
-                      <span className="font-bold text-slate-800 block">{rec.operatorName}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">{rec.operatorNik}</span>
-                    </td>
+                      <td className="py-3 px-3">
+                        <span className="font-bold text-slate-800 block">{rec.operatorName}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{rec.operatorNik}</span>
+                      </td>
 
-                    <td className="py-3 px-3 text-center font-mono">
-                      <span className="font-bold text-slate-700 block">+{rec.totalKm} KM</span>
-                      <span className="text-[10px] text-slate-400">{rec.startSoc}% → {rec.endSoc}%</span>
-                    </td>
+                      <td className="py-3 px-3 text-center font-mono">
+                        <span className="font-bold text-slate-700 block">+{eff.totalKm} KM</span>
+                        <span className="text-[10px] text-slate-400">{rec.startSoc}% → {rec.endSoc}%</span>
+                      </td>
 
-                    <td className="py-3 px-3 text-right font-mono">
-                      <span className="font-extrabold text-sky-600 block">{rec.energyConsumedKwh} kWh</span>
-                      <span className="text-[10px] text-emerald-600 font-bold">{rec.consumptionRateKwhPerKm} kWh/km</span>
-                    </td>
+                      <td className="py-3 px-3 text-right font-mono">
+                        <span className="font-extrabold text-sky-600 block">{eff.energyConsumedKwh} kWh</span>
+                        <span className="text-[10px] text-emerald-600 font-bold">{eff.consumptionRateKwhPerKm} kWh/km</span>
+                      </td>
 
                     <td className="py-3 px-3 text-center">
                       {rec.overallStatus === 'approved' ? (
@@ -728,7 +731,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -198,11 +198,26 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
     }
   };
 
+  const [chargingPercent, setChargingPercent] = useState<number>(initialForm?.charging?.percentCharged || 0);
+  const [chargingLocation, setChargingLocation] = useState<string>(initialForm?.charging?.chargingLocation || '');
+
   // Real-time Energy & Travel Calculations
   const calculations = useMemo(() => {
     const totalKm = Math.max(0, endKm - startKm);
-    const socDelta = Math.max(0, startSoc - endSoc);
-    const kwhConsumed = Number(((socDelta / 100) * batteryCapacityKwh).toFixed(2));
+    
+    let socUsed = 0;
+    let kwhConsumed = 0;
+
+    if (startSoc < endSoc) {
+      // Jika SOC Baterai Awal < SOC Baterai Akhir:
+      // Perhitungan Energi KWH = Nilai SOC akhir dikurangi Nilai SOC awal
+      const socDiff = endSoc - startSoc;
+      socUsed = socDiff;
+      kwhConsumed = Number(((socDiff / 100) * batteryCapacityKwh).toFixed(2));
+    } else {
+      socUsed = startSoc - endSoc;
+      kwhConsumed = Number(((socUsed / 100) * batteryCapacityKwh).toFixed(2));
+    }
     
     const kwhPerKm = totalKm > 0 ? Number((kwhConsumed / totalKm).toFixed(3)) : 0;
     const kmPerKwh = kwhConsumed > 0 ? Number((totalKm / kwhConsumed).toFixed(2)) : 0;
@@ -215,7 +230,7 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
 
     return {
       totalKm,
-      batteryUsedPercent: socDelta,
+      batteryUsedPercent: socUsed,
       energyConsumedKwh: kwhConsumed,
       consumptionRateKwhPerKm: kwhPerKm,
       kmPerKwh,
@@ -223,9 +238,6 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
       co2ReductionKg: Math.max(0, co2Reduction)
     };
   }, [startKm, endKm, startSoc, endSoc, batteryCapacityKwh]);
-
-  const [chargingPercent, setChargingPercent] = useState<number>(initialForm?.charging?.percentCharged || 0);
-  const [chargingLocation, setChargingLocation] = useState<string>(initialForm?.charging?.chargingLocation || '');
 
   const chargingCalculations = useMemo(() => {
     const energyAddedKwh = Number(((batteryCapacityKwh * chargingPercent) / 100).toFixed(2));
@@ -704,9 +716,11 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
             </div>
 
             <div>
-              <span className="text-[10px] text-slate-400 block font-medium">% Terpakai</span>
+              <span className="text-[10px] text-slate-400 block font-medium">
+                {startSoc < endSoc ? '% Selisih SOC (+)' : '% Terpakai'}
+              </span>
               <span className="text-base sm:text-lg font-extrabold font-mono text-amber-400 tabular-nums">
-                {calculations.batteryUsedPercent}%
+                {startSoc < endSoc ? `+${calculations.batteryUsedPercent}%` : `${calculations.batteryUsedPercent}%`}
               </span>
             </div>
 

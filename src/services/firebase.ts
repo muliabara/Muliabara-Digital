@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, doc, getDocFromServer, disableNetwork } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
 export const firebaseConfig = {
@@ -31,14 +31,30 @@ try {
 
 export const db = firestoreInstance;
 
+let isQuotaExhaustedFlag = false;
+
+export function handleQuotaExhausted() {
+  if (isQuotaExhaustedFlag) return;
+  isQuotaExhaustedFlag = true;
+  console.warn("Firestore daily write/read quota reached. Switching seamlessly to local tab broadcast mode.");
+  disableNetwork(db).catch(() => {});
+}
+
 // Test connection on boot
 export async function testConnection(): Promise<boolean> {
+  if (isQuotaExhaustedFlag) return true;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'not-found') {
-      return true;
+  } catch (error: any) {
+    if (error && typeof error === 'object') {
+      if (error.code === 'resource-exhausted' || error.message?.includes('Quota limit exceeded')) {
+        handleQuotaExhausted();
+        return true;
+      }
+      if (error.code === 'not-found') {
+        return true;
+      }
     }
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn("Firestore client is offline, check connection.");

@@ -6,6 +6,7 @@ import {
   NON_CRITICAL_INSPECTIONS 
 } from '../data/checklistConfig';
 import { Printer, ArrowLeft, Download, Check, Loader2 } from 'lucide-react';
+import { getEffectiveRecordMetrics } from '../utils/telemetry';
 
 interface OfficialPdfPrintViewProps {
   form: P2HFormRecord;
@@ -20,6 +21,7 @@ export const OfficialPdfPrintView: React.FC<OfficialPdfPrintViewProps> = ({
 }) => {
   const printDocRef = useRef<HTMLDivElement | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const eff = getEffectiveRecordMetrics(form);
 
   const handlePrint = () => {
     window.print();
@@ -199,7 +201,7 @@ export const OfficialPdfPrintView: React.FC<OfficialPdfPrintViewProps> = ({
         <div className="border-2 border-black border-t-0 p-1.5 bg-slate-50 text-[9.5px] grid grid-cols-5 gap-2 mb-1">
           <div>
             <span className="font-bold block text-slate-600">Jarak Tempuh (ΔKM):</span>
-            <span className="font-bold font-mono text-xs">{form.totalKm} KM</span>
+            <span className="font-bold font-mono text-xs">{eff.totalKm} KM</span>
           </div>
           <div>
             <span className="font-bold block text-slate-600">SOC Awal → Akhir:</span>
@@ -207,15 +209,15 @@ export const OfficialPdfPrintView: React.FC<OfficialPdfPrintViewProps> = ({
           </div>
           <div>
             <span className="font-bold block text-slate-600">% Baterai Terpakai:</span>
-            <span className="font-mono font-bold text-xs">{form.batteryUsedPercent}%</span>
+            <span className="font-mono font-bold text-xs">{eff.batteryUsedPercent}%</span>
           </div>
           <div>
             <span className="font-bold block text-slate-600">Konversi Energi:</span>
-            <span className="font-mono font-bold text-xs text-sky-800">{form.energyConsumedKwh} kWh</span>
+            <span className="font-mono font-bold text-xs text-sky-800">{eff.energyConsumedKwh} kWh</span>
           </div>
           <div>
             <span className="font-bold block text-slate-600">Laju Efisiensi:</span>
-            <span className="font-mono font-bold text-xs text-emerald-800">{form.consumptionRateKwhPerKm} kWh/km</span>
+            <span className="font-mono font-bold text-xs text-emerald-800">{eff.consumptionRateKwhPerKm} kWh/km</span>
           </div>
         </div>
 
