@@ -29,7 +29,7 @@ import {
   X
 } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
-import { getEffectiveRecordMetrics } from '../utils/telemetry';
+import { getEffectiveRecordMetrics, getRecordChargingKwh } from '../utils/telemetry';
 
 interface DashboardViewProps {
   vehicles: VehicleUnit[];
@@ -116,7 +116,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const totalCo2 = filteredRecords.reduce((acc, r) => acc + (r.co2ReductionKg || 0), 0);
   const totalSavings = filteredRecords.reduce((acc, r) => acc + (r.costSavingsIdr || 0), 0);
   const approvedCount = filteredRecords.filter(r => r.overallStatus === 'approved').length;
-  const monthChargingTotal = filteredRecords.reduce((acc, r) => acc + (r.charging?.energyAddedKwh || 0), 0);
+  const monthChargingTotal = filteredRecords.reduce((acc, r) => acc + getRecordChargingKwh(r), 0);
 
   // 1 Calendar Month (Days 1 to DaysInMonth) Dynamic Data Grid
   const daysInMonth = useMemo(() => {
@@ -152,7 +152,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       const kwh = dayRecords.reduce((acc, r) => acc + (getEffectiveRecordMetrics(r).energyConsumedKwh || 0), 0);
       const km = dayRecords.reduce((acc, r) => acc + (r.totalKm || 0), 0);
-      const chargingKwh = dayRecords.reduce((acc, r) => acc + (r.charging?.energyAddedKwh || 0), 0);
+      const chargingKwh = dayRecords.reduce((acc, r) => acc + getRecordChargingKwh(r), 0);
       const savings = dayRecords.reduce((acc, r) => acc + (r.costSavingsIdr || 0), 0);
 
       daysArr.push({
@@ -208,7 +208,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Recent charging sessions
   const recentCharging = useMemo(() => {
     return records
-      .filter(r => r.charging && r.charging.energyAddedKwh > 0)
+      .filter(r => getRecordChargingKwh(r) > 0)
       .slice(0, 5);
   }, [records]);
 
@@ -224,10 +224,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
         
         {/* Card 1: Konsumsi Energi Bulan Ini */}
-        <div className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl`}>
+        <div 
+          onClick={() => onNavigate('log')}
+          title="Klik untuk melihat Log & Arsip P2H"
+          className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl cursor-pointer hover:border-blue-400/80 active:scale-[0.98] group`}
+        >
           <div className="flex items-center justify-between gap-1.5">
             <div className="space-y-0.5 sm:space-y-1 min-w-0">
-              <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider mb-0 truncate">
+              <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider mb-0 truncate flex items-center gap-1">
                 Konsumsi Energi
               </p>
               <h5 className="font-extrabold text-base sm:text-2xl text-slate-800 tracking-tight mb-0 truncate">
@@ -238,14 +242,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="text-slate-400 font-medium font-sans hidden sm:inline">efisiensi vs diesel</span>
               </p>
             </div>
-            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-blue-700 to-cyan-500 shadow-soft-2xl flex items-center justify-center text-white shrink-0">
+            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-blue-700 to-cyan-500 shadow-soft-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
               <Zap className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </div>
         </div>
 
         {/* Card 2: Total Jarak Tempuh */}
-        <div className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl`}>
+        <div 
+          onClick={() => onNavigate('log')}
+          title="Klik untuk melihat Log & Arsip P2H"
+          className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl cursor-pointer hover:border-purple-400/80 active:scale-[0.98] group`}
+        >
           <div className="flex items-center justify-between gap-1.5">
             <div className="space-y-0.5 sm:space-y-1 min-w-0">
               <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider mb-0 truncate">
@@ -259,19 +267,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="text-slate-400 font-medium font-sans hidden sm:inline">shift operasional</span>
               </p>
             </div>
-            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-purple-700 to-pink-500 shadow-soft-2xl flex items-center justify-center text-white shrink-0">
+            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-purple-700 to-pink-500 shadow-soft-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
               <Truck className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </div>
         </div>
 
-        {/* Card 3: Pengisian SPKLU */}
-        <div className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl`}>
+        {/* Card 3: Pengisian SPKLU (Interactive & Navigates to charging_log) */}
+        <div 
+          onClick={() => onNavigate('charging_log')}
+          title="Klik untuk membuka Log Riwayat Pengisian Daya (EV Charging Log)"
+          className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl cursor-pointer hover:border-amber-500/90 ring-2 ring-amber-400/30 active:scale-[0.98] group bg-amber-50/20`}
+        >
           <div className="flex items-center justify-between gap-1.5">
             <div className="space-y-0.5 sm:space-y-1 min-w-0">
-              <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider mb-0 truncate">
-                Pengisian SPKLU
-              </p>
+              <div className="flex items-center gap-1">
+                <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-600 uppercase tracking-wider mb-0 truncate">
+                  Pengisian SPKLU
+                </p>
+                <span className="inline-block text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded">
+                  Buka Log →
+                </span>
+              </div>
               <h5 className="font-extrabold text-base sm:text-2xl text-slate-800 tracking-tight mb-0 truncate">
                 {monthChargingTotal.toFixed(1)} <span className="text-[10px] sm:text-xs font-semibold text-slate-500">kWh</span>
               </h5>
@@ -279,14 +296,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="font-black">CCS2 Fast Chg</span>
               </p>
             </div>
-            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-amber-500 to-orange-400 shadow-soft-2xl flex items-center justify-center text-white shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigate('charging_log');
+              }}
+              title="Buka Log Charging SPKLU"
+              className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-amber-500 to-orange-400 shadow-soft-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 group-hover:shadow-amber-500/50 transition-all cursor-pointer"
+            >
               <BatteryCharging className="w-4 h-4 sm:w-6 sm:h-6" />
-            </div>
+            </button>
           </div>
         </div>
 
         {/* Card 4: Kesiapan Armada Fleet */}
-        <div className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl`}>
+        <div 
+          onClick={() => onNavigate('units')}
+          title="Klik untuk melihat Daftar Unit EV Fleet"
+          className={`relative flex flex-col min-w-0 break-words ${glassCard} p-3 sm:p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl cursor-pointer hover:border-emerald-400/80 active:scale-[0.98] group`}
+        >
           <div className="flex items-center justify-between gap-1.5">
             <div className="space-y-0.5 sm:space-y-1 min-w-0">
               <p className="font-sans font-semibold text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider mb-0 truncate">
@@ -299,7 +328,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="font-black">100% Laik</span>
               </p>
             </div>
-            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-emerald-600 to-teal-400 shadow-soft-2xl flex items-center justify-center text-white shrink-0">
+            <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-tl from-emerald-600 to-teal-400 shadow-soft-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
               <ShieldCheck className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </div>
@@ -775,7 +804,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-xs text-slate-800">
-                        {item.unitNumber} (+{item.charging?.energyAddedKwh} kWh)
+                        {item.unitNumber} (+{getRecordChargingKwh(item)} kWh)
                       </span>
                       <span className="text-[10px] font-mono text-slate-400">
                         {item.date}
@@ -788,7 +817,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[9px] font-bold font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        Terisi {item.charging?.percentCharged}% (+{item.charging?.estimatedRangeKm} KM Range)
+                        Terisi +{item.charging?.percentCharged || (item.endSoc > item.startSoc ? item.endSoc - item.startSoc : 0)}% SOC (+{item.charging?.estimatedRangeKm || Number((((item.charging?.percentCharged || (item.endSoc > item.startSoc ? item.endSoc - item.startSoc : 0)) / 100) * 330).toFixed(0))} KM Range)
                       </span>
                     </div>
                   </div>

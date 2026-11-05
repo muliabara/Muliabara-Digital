@@ -93,3 +93,31 @@ export function getEffectiveRecordMetrics(record: P2HFormRecord): EffectiveMetri
     socLabel
   };
 }
+
+/**
+ * Calculates effective charging energy added (in kWh) for a P2H record:
+ * Checks explicit charging object energyAddedKwh, charging percent, or SOC rise (endSoc > startSoc).
+ */
+export function getRecordChargingKwh(record: P2HFormRecord): number {
+  if (!record) return 0;
+  
+  if (record.charging?.energyAddedKwh && record.charging.energyAddedKwh > 0) {
+    return record.charging.energyAddedKwh;
+  }
+  
+  const capacity = record.batteryCapacityKwh || 88.02;
+
+  if (record.charging?.percentCharged && record.charging.percentCharged > 0) {
+    return Number(((record.charging.percentCharged / 100) * capacity).toFixed(2));
+  }
+
+  const startSoc = record.startSoc ?? 0;
+  const endSoc = record.endSoc ?? 0;
+  if (endSoc > startSoc) {
+    const socRise = endSoc - startSoc;
+    return Number(((socRise / 100) * capacity).toFixed(2));
+  }
+
+  return 0;
+}
+
