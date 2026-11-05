@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { P2HFormRecord, VehicleUnit, AppSettings } from '../types/p2h';
-import { BatteryCharging, Search, Download, Calendar, Zap, ShieldCheck, FileText, ArrowRight, MapPin, User, Truck } from 'lucide-react';
+import { BatteryCharging, Search, FileSpreadsheet, Calendar, Zap, ShieldCheck, FileText, ArrowRight, MapPin, User, Truck } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
+import { exportChargingLogToExcel } from '../utils/excelExport';
 
 interface ChargingLogViewProps {
   records: P2HFormRecord[];
@@ -68,29 +69,8 @@ export const ChargingLogView: React.FC<ChargingLogViewProps> = ({
   const totalChargingKwh = filteredSessions.reduce((acc, s) => acc + s.energyAddedKwh, 0);
   const totalChargingCost = Math.round(totalChargingKwh * 2475);
 
-  const handleExportCsv = () => {
-    const headers = ['ID Form', 'Tanggal', 'Shift', 'Unit', 'Operator', 'NIK', '% Terisi', 'kWh Terisi', 'Est. Jarak (KM)', 'Lokasi SPKLU'];
-    const rows = filteredSessions.map(s => [
-      `"${s.id}"`,
-      `"${s.date}"`,
-      `"${s.shift}"`,
-      `"${s.unitNumber}"`,
-      `"${s.operatorName}"`,
-      `"${s.operatorNik}"`,
-      s.percentCharged,
-      s.energyAddedKwh,
-      s.estimatedRangeKm,
-      `"${s.chargingLocation}"`
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Log_EV_Charging_JAC_T9_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportExcel = () => {
+    exportChargingLogToExcel(filteredSessions);
   };
 
   return (
@@ -117,11 +97,11 @@ export const ChargingLogView: React.FC<ChargingLogViewProps> = ({
 
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
             <button
-              onClick={handleExportCsv}
+              onClick={handleExportExcel}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              <Download className="w-4 h-4" />
-              <span>Unduh Log Charging (CSV)</span>
+              <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+              <span>Unduh Log Charging (Excel .xlsx)</span>
             </button>
           </div>
         </div>

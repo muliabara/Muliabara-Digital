@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { getGlassCardClass } from '../utils/glass';
 import { getEffectiveRecordMetrics } from '../utils/telemetry';
+import { exportP2HLogToExcel } from '../utils/excelExport';
 
 interface P2HLogViewProps {
   records: P2HFormRecord[];
@@ -379,36 +380,9 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
     };
   }, [records]);
 
-  // Export CSV
-  const handleExportCsv = () => {
-    const headers = [
-      'ID Form', 'No Dokumen', 'Tanggal', 'Shift', 'No Unit', 'Model Unit',
-      'Operator', 'NIK Operator', 'KM Awal', 'KM Akhir', 'Total KM',
-      'SOC Awal (%)', 'SOC Akhir (%)', 'Baterai Terpakai (%)', 'Konsumsi (kWh)',
-      'Efisiensi (kWh/km)', 'Charging Terisi (%)', 'Charging Terisi (kWh)', 'Status P2H', 'Foreman Approver', 'Foreman Status'
-    ];
-
-    const rows = filteredRecords.map(r => {
-      const eff = getEffectiveRecordMetrics(r);
-      return [
-        `"${r.id}"`, `"${r.docNumber}"`, `"${r.date}"`, `"${r.shift}"`,
-        `"${r.unitNumber}"`, `"${r.unitModel}"`, `"${r.operatorName}"`, `"${r.operatorNik}"`,
-        r.startKm, r.endKm, eff.totalKm, r.startSoc, r.endSoc, eff.batteryUsedPercent,
-        eff.energyConsumedKwh, eff.consumptionRateKwhPerKm,
-        r.charging?.percentCharged || 0, r.charging?.energyAddedKwh || 0,
-        `"${r.overallStatus}"`,
-        `"${r.foremanApproval.foremanName || '-'}"`, `"${r.foremanApproval.status}"`
-      ];
-    });
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Log_P2H_JAC_T9_EV_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Export Excel (.xlsx)
+  const handleExportExcel = () => {
+    exportP2HLogToExcel(filteredRecords);
   };
 
   const confirmDelete = () => {
@@ -453,11 +427,12 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
               </button>
             )}
             <button
-              onClick={handleExportCsv}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              onClick={handleExportExcel}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl transition-colors cursor-pointer shadow-soft-xxs"
+              title="Ekspor seluruh log P2H ke format file Microsoft Excel (.xlsx)"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Ekspor CSV</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Ekspor Excel (.xlsx)</span>
             </button>
             <button
               onClick={() => setShowUploadModal(true)}
