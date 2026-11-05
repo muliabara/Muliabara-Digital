@@ -204,19 +204,36 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   // Real-time Energy & Travel Calculations
   const calculations = useMemo(() => {
     const totalKm = Math.max(0, endKm - startKm);
+    const capacity = batteryCapacityKwh || 88.02;
+    const chargingKwh = Number(((chargingPercent / 100) * capacity).toFixed(2));
     
     let socUsed = 0;
     let kwhConsumed = 0;
 
-    if (startSoc < endSoc) {
-      // Jika SOC Baterai Awal < SOC Baterai Akhir:
-      // Perhitungan Energi KWH = Nilai SOC akhir dikurangi Nilai SOC awal
-      const socDiff = endSoc - startSoc;
-      socUsed = socDiff;
-      kwhConsumed = Number(((socDiff / 100) * batteryCapacityKwh).toFixed(2));
-    } else {
+    if (startSoc > endSoc) {
       socUsed = startSoc - endSoc;
-      kwhConsumed = Number(((socUsed / 100) * batteryCapacityKwh).toFixed(2));
+      const socDropKwh = (socUsed / 100) * capacity;
+      kwhConsumed = chargingKwh > 0 ? Number((socDropKwh + chargingKwh).toFixed(2)) : Number(socDropKwh.toFixed(2));
+    } else if (startSoc < endSoc) {
+      const socRisePercent = endSoc - startSoc;
+      const socRiseKwh = (socRisePercent / 100) * capacity;
+      if (chargingKwh > socRiseKwh) {
+        kwhConsumed = Number((chargingKwh - socRiseKwh).toFixed(2));
+      } else if (totalKm > 0) {
+        kwhConsumed = Number((totalKm * 0.267).toFixed(2));
+      } else {
+        kwhConsumed = 0;
+      }
+      socUsed = socRisePercent;
+    } else {
+      if (chargingKwh > 0) {
+        kwhConsumed = Number(chargingKwh.toFixed(2));
+      } else if (totalKm > 0) {
+        kwhConsumed = Number((totalKm * 0.267).toFixed(2));
+      } else {
+        kwhConsumed = 0;
+      }
+      socUsed = 0;
     }
     
     const kwhPerKm = totalKm > 0 ? Number((kwhConsumed / totalKm).toFixed(3)) : 0;
@@ -237,7 +254,7 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
       costSavingsIdr: costSavings,
       co2ReductionKg: Math.max(0, co2Reduction)
     };
-  }, [startKm, endKm, startSoc, endSoc, batteryCapacityKwh]);
+  }, [startKm, endKm, startSoc, endSoc, batteryCapacityKwh, chargingPercent]);
 
   const chargingCalculations = useMemo(() => {
     const energyAddedKwh = Number(((batteryCapacityKwh * chargingPercent) / 100).toFixed(2));

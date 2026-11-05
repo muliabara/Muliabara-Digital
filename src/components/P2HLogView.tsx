@@ -806,8 +806,8 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                         <div className="font-mono text-slate-800">
                           {record.startSoc}% → {record.endSoc}%
                         </div>
-                        <span className="text-[10px] text-amber-600 font-semibold block">
-                          Terpakai {eff.batteryUsedPercent}%
+                        <span className={`text-[10px] font-semibold block ${eff.isNetGain ? 'text-emerald-600 font-bold' : 'text-amber-600'}`}>
+                          {eff.socLabel}
                         </span>
                       </td>
 
