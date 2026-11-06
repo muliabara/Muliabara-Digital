@@ -4,7 +4,8 @@ import {
   VehicleUnit, 
   CheckStatus, 
   DriverStatus,
-  UserProfile
+  UserProfile,
+  AppSettings
 } from '../types/p2h';
 import { 
   DRIVER_CONDITIONS, 
@@ -39,6 +40,7 @@ interface P2HFormEditorProps {
   initialForm?: P2HFormRecord | null;
   currentUser: UserProfile;
   allUsers: UserProfile[];
+  settings?: AppSettings;
   onSave: (form: P2HFormRecord) => void;
   onCancel: () => void;
 }
@@ -48,6 +50,7 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   initialForm,
   currentUser,
   allUsers,
+  settings,
   onSave,
   onCancel
 }) => {
@@ -199,13 +202,47 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   };
 
   const [chargingPercent, setChargingPercent] = useState<number>(initialForm?.charging?.percentCharged || 0);
+  const [chargingKwh, setChargingKwh] = useState<number>(
+    initialForm?.charging?.energyAddedKwh || Number((((initialForm?.charging?.percentCharged || 0) / 100) * 88.02).toFixed(2))
+  );
   const [chargingLocation, setChargingLocation] = useState<string>(initialForm?.charging?.chargingLocation || '');
+  // Editable Tarif Listrik PLN state (Default: settings.plnTariffPerKwh or 1699)
+  const [plnTariff, setPlnTariff] = useState<number>(settings?.plnTariffPerKwh || 1699);
+
+  // Handlers for flexible charging input (Input via % or Input via kWh)
+  const handleChargingPercentChange = (val: number) => {
+    const safePercent = Math.min(100, Math.max(0, val));
+    setChargingPercent(safePercent);
+    const calculatedKwh = Number(((batteryCapacityKwh * safePercent) / 100).toFixed(2));
+    setChargingKwh(calculatedKwh);
+  };
+
+  const handleChargingKwhChange = (val: number) => {
+    const safeKwh = Math.max(0, val);
+    setChargingKwh(safeKwh);
+    const calculatedPercent = Math.min(100, Number(((safeKwh / batteryCapacityKwh) * 100).toFixed(1)));
+    setChargingPercent(calculatedPercent);
+  };
+
+  const chargingCalculations = useMemo(() => {
+    const energyAddedKwh = chargingKwh;
+    const effectivePercent = chargingPercent;
+    const estimatedRangeKm = Number(((effectivePercent / 100) * 330).toFixed(1));
+    const estimatedCostIdr = Math.round(energyAddedKwh * (plnTariff || 1699)); // Calculated dynamically from editable plnTariff
+    return {
+      energyAddedKwh,
+      effectivePercent,
+      estimatedRangeKm,
+      estimatedCostIdr,
+      plnTariff
+    };
+  }, [batteryCapacityKwh, chargingPercent, chargingKwh, plnTariff]);
 
   // Real-time Energy & Travel Calculations
   const calculations = useMemo(() => {
     const totalKm = Math.max(0, endKm - startKm);
     const capacity = batteryCapacityKwh || 88.02;
-    const chargingKwh = Number(((chargingPercent / 100) * capacity).toFixed(2));
+    const energyAdded = chargingCalculations.energyAddedKwh;
     
     let socUsed = 0;
     let kwhConsumed = 0;
@@ -213,12 +250,12 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
     if (startSoc > endSoc) {
       socUsed = startSoc - endSoc;
       const socDropKwh = (socUsed / 100) * capacity;
-      kwhConsumed = chargingKwh > 0 ? Number((socDropKwh + chargingKwh).toFixed(2)) : Number(socDropKwh.toFixed(2));
+      kwhConsumed = energyAdded > 0 ? Number((socDropKwh + energyAdded).toFixed(2)) : Number(socDropKwh.toFixed(2));
     } else if (startSoc < endSoc) {
       const socRisePercent = endSoc - startSoc;
       const socRiseKwh = (socRisePercent / 100) * capacity;
-      if (chargingKwh > socRiseKwh) {
-        kwhConsumed = Number((chargingKwh - socRiseKwh).toFixed(2));
+      if (energyAdded > socRiseKwh) {
+        kwhConsumed = Number((energyAdded - socRiseKwh).toFixed(2));
       } else if (totalKm > 0) {
         kwhConsumed = Number((totalKm * 0.267).toFixed(2));
       } else {
@@ -226,8 +263,8 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
       }
       socUsed = socRisePercent;
     } else {
-      if (chargingKwh > 0) {
-        kwhConsumed = Number(chargingKwh.toFixed(2));
+      if (energyAdded > 0) {
+        kwhConsumed = Number(energyAdded.toFixed(2));
       } else if (totalKm > 0) {
         kwhConsumed = Number((totalKm * 0.267).toFixed(2));
       } else {
@@ -241,7 +278,7 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
     
     const dieselLitersEq = Number((totalKm / 8).toFixed(1));
     const dieselCost = dieselLitersEq * 15200;
-    const electricCost = kwhConsumed * 1700;
+    const electricCost = kwhConsumed * 1699;
     const costSavings = Math.max(0, Math.round(dieselCost - electricCost));
     const co2Reduction = Number((dieselLitersEq * 2.68 - (kwhConsumed * 0.79)).toFixed(1));
 
@@ -254,18 +291,7 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
       costSavingsIdr: costSavings,
       co2ReductionKg: Math.max(0, co2Reduction)
     };
-  }, [startKm, endKm, startSoc, endSoc, batteryCapacityKwh, chargingPercent]);
-
-  const chargingCalculations = useMemo(() => {
-    const energyAddedKwh = Number(((batteryCapacityKwh * chargingPercent) / 100).toFixed(2));
-    const estimatedRangeKm = Number(((chargingPercent / 100) * 330).toFixed(1));
-    const estimatedCostIdr = Math.round(energyAddedKwh * 2475);
-    return {
-      energyAddedKwh,
-      estimatedRangeKm,
-      estimatedCostIdr
-    };
-  }, [batteryCapacityKwh, chargingPercent]);
+  }, [startKm, endKm, startSoc, endSoc, batteryCapacityKwh, chargingCalculations]);
 
   // Abnormal findings (exclude items already repaired and closed)
   const criticalAbnormals = useMemo(() => {
@@ -654,13 +680,18 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
           </div>
         </div>
 
-        {/* REQUIREMENT 3: P2H Charging Berapa % Terisi Serta Konversinya */}
-        <div className="p-4 sm:p-5 rounded-xl bg-emerald-950 text-white space-y-3 border border-emerald-800">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-800/60">
+        {/* REQUIREMENT 3: P2H Charging Berapa % Terisi Serta Konversinya & Fleksibel Input (% atau kWh) */}
+        <div className="p-4 sm:p-5 rounded-xl bg-emerald-950 text-white space-y-3.5 border border-emerald-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-emerald-800/60">
             <div>
-              <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-900/80 px-2.5 py-0.5 rounded">
-                P2H CHARGING STATION EV
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-900/80 px-2.5 py-0.5 rounded border border-emerald-700/60">
+                  P2H CHARGING STATION EV
+                </span>
+                <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-700/60">
+                  2 Cara Input Fleksibel (% / kWh)
+                </span>
+              </div>
               <h3 className="text-sm font-bold text-white mt-1 flex items-center gap-2">
                 <BatteryCharging className="w-4 h-4 text-emerald-400" />
                 Pengisian Daya (Charging) & Konversi Energi Baterai
@@ -671,26 +702,74 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">
+            {/* Input Cara 1: % Persentase Terisi */}
             <div>
-              <label className="block font-bold text-emerald-200 mb-1">
-                % Terisi (Charging Added %)
+              <label className="block font-bold text-emerald-200 mb-1 flex items-center justify-between">
+                <span>% Terisi (Charging %)</span>
+                <span className="text-[9px] text-emerald-400 font-mono">Cara 1</span>
               </label>
               <div className="relative">
                 <input
                   type="number"
                   min="0"
                   max="100"
+                  step="0.1"
                   value={chargingPercent === 0 ? '' : chargingPercent}
-                  onChange={e => setChargingPercent(e.target.value === '' ? 0 : Math.min(100, Math.max(0, Number(e.target.value))))}
+                  onChange={e => handleChargingPercentChange(e.target.value === '' ? 0 : Number(e.target.value))}
                   placeholder="0"
                   className="w-full px-3 py-2 bg-emerald-900/60 border border-emerald-700 rounded-lg text-white font-mono font-bold focus:ring-2 focus:ring-emerald-400"
                 />
-                <span className="absolute right-3 top-2.5 text-emerald-300 font-bold">%</span>
+                <span className="absolute right-3 top-2 text-emerald-300 font-bold">%</span>
               </div>
-              <span className="text-[10px] text-emerald-300 mt-1 block">Persentase pengisian baterai saat P2H</span>
+              <span className="text-[10px] text-emerald-300/90 mt-1 block">Input % → Otomatis hitung kWh</span>
             </div>
 
+            {/* Input Cara 2: Energi Terisi (kWh) */}
+            <div>
+              <label className="block font-bold text-emerald-200 mb-1 flex items-center justify-between">
+                <span>Energi Terisi (kWh)</span>
+                <span className="text-[9px] text-emerald-400 font-mono">Cara 2</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="88.02"
+                  step="0.01"
+                  value={chargingKwh === 0 ? '' : chargingKwh}
+                  onChange={e => handleChargingKwhChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 bg-emerald-900/60 border border-emerald-700 rounded-lg text-white font-mono font-bold focus:ring-2 focus:ring-emerald-400"
+                />
+                <span className="absolute right-3 top-2 text-emerald-300 font-bold">kWh</span>
+              </div>
+              <span className="text-[10px] text-emerald-300/90 mt-1 block">Input kWh → Otomatis hitung %</span>
+            </div>
+
+            {/* Input Editable Tarif PLN (Rp / kWh) */}
+            <div>
+              <label className="block font-bold text-emerald-200 mb-1 flex items-center justify-between">
+                <span>Tarif PLN (Rp/kWh)</span>
+                <span className="text-[9px] text-amber-300 font-mono bg-amber-900/60 px-1.5 py-0.2 rounded border border-amber-700/60">Dapat Di-edit</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-2 text-emerald-300 font-bold text-xs">Rp</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={plnTariff}
+                  onChange={e => setPlnTariff(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                  placeholder="1699"
+                  className="w-full pl-8 pr-12 py-2 bg-emerald-900/60 border border-amber-600/80 rounded-lg text-amber-200 font-mono font-bold focus:ring-2 focus:ring-amber-400"
+                />
+                <span className="absolute right-2.5 top-2 text-emerald-300/80 font-mono text-[10px]">/kWh</span>
+              </div>
+              <span className="text-[10px] text-amber-300/90 mt-1 block">Bisa diubah sesuai tarif charger</span>
+            </div>
+
+            {/* Input Lokasi Charging */}
             <div>
               <label className="block font-bold text-emerald-200 mb-1">
                 Lokasi Charging / SPKLU
@@ -699,25 +778,40 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
                 type="text"
                 value={chargingLocation}
                 onChange={e => setChargingLocation(e.target.value)}
-                placeholder="Contoh: SPKLU Pit A / Workshop Utama"
+                placeholder="Contoh: SPKLU Pit A / Rumah / Workshop"
                 className="w-full px-3 py-2 bg-emerald-900/60 border border-emerald-700 rounded-lg text-white font-medium focus:ring-2 focus:ring-emerald-400"
               />
-              <span className="text-[10px] text-emerald-300 mt-1 block">Lokasi stasiun pengisian</span>
+              <span className="text-[10px] text-emerald-300/90 mt-1 block">Lokasi stasiun pengisian</span>
+            </div>
+          </div>
+
+          {/* Result Summary Banner */}
+          <div className="p-3 bg-emerald-900/90 rounded-xl border border-emerald-700/80 font-mono flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div>
+                <span className="text-[10px] text-emerald-300 block font-sans">kWh Terisi:</span>
+                <span className="font-bold text-white text-sm">{chargingCalculations.energyAddedKwh} kWh</span>
+              </div>
+              <div className="h-6 w-px bg-emerald-700/80 hidden sm:block"></div>
+              <div>
+                <span className="text-[10px] text-emerald-300 block font-sans">Persentase SOC:</span>
+                <span className="font-bold text-emerald-300 text-sm">+{chargingCalculations.effectivePercent}%</span>
+              </div>
+              <div className="h-6 w-px bg-emerald-700/80 hidden sm:block"></div>
+              <div>
+                <span className="text-[10px] text-emerald-300 block font-sans">Tambahan Jarak:</span>
+                <span className="font-bold text-emerald-300 text-sm">~{chargingCalculations.estimatedRangeKm} KM</span>
+              </div>
             </div>
 
-            <div className="p-3 bg-emerald-900/80 rounded-lg border border-emerald-700 space-y-1 font-mono">
-              <div className="flex justify-between text-[11px] text-emerald-200">
-                <span>kWh Terisi:</span>
-                <span className="font-bold text-white">{chargingCalculations.energyAddedKwh} kWh</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-emerald-200">
-                <span>Tambahan Jarak:</span>
-                <span className="font-bold text-emerald-300">~{chargingCalculations.estimatedRangeKm} KM</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-emerald-200">
-                <span>Est. Biaya PLN:</span>
-                <span className="font-bold text-amber-300">Rp {chargingCalculations.estimatedCostIdr.toLocaleString('id-ID')}</span>
-              </div>
+            <div className="text-right sm:border-l sm:border-emerald-700/80 sm:pl-4 w-full sm:w-auto flex justify-between sm:block">
+              <span className="text-[10px] text-emerald-300 block font-sans">Est. Biaya PLN:</span>
+              <span className="font-extrabold text-amber-300 text-sm block">
+                Rp {chargingCalculations.estimatedCostIdr.toLocaleString('id-ID')}
+              </span>
+              <span className="text-[9px] text-emerald-400 block font-sans">
+                (@ Rp {(chargingCalculations.plnTariff || 1699).toLocaleString('id-ID')} / kWh)
+              </span>
             </div>
           </div>
         </div>

@@ -66,11 +66,12 @@ export const ChargingLogView: React.FC<ChargingLogViewProps> = ({
     });
   }, [chargingSessions, selectedUnit, startDate, endDate, searchQuery]);
 
+  const activeTariff = settings?.plnTariffPerKwh || 1699;
   const totalChargingKwh = filteredSessions.reduce((acc, s) => acc + s.energyAddedKwh, 0);
-  const totalChargingCost = Math.round(totalChargingKwh * 2475);
+  const totalChargingCost = Math.round(totalChargingKwh * activeTariff);
 
   const handleExportExcel = () => {
-    exportChargingLogToExcel(filteredSessions);
+    exportChargingLogToExcel(filteredSessions, activeTariff);
   };
 
   return (
@@ -123,7 +124,7 @@ export const ChargingLogView: React.FC<ChargingLogViewProps> = ({
           <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200/60 space-y-1">
             <span className="text-amber-900 font-bold block">Estimasi Biaya PLN</span>
             <span className="text-2xl font-black font-mono text-amber-700">Rp {totalChargingCost.toLocaleString('id-ID')}</span>
-            <span className="text-[10px] text-amber-800 block">Tarif SPKLU EV Rp 2.475 / kWh</span>
+            <span className="text-[10px] text-amber-800 block">Tarif PLN Rp {activeTariff.toLocaleString('id-ID')} / kWh</span>
           </div>
         </div>
 

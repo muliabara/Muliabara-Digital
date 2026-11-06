@@ -233,5 +233,7 @@ export interface AppSettings {
   loginBarcodeSubtitle?: string;
   loginBarcodeFooter?: string;
   loginBarcodeCustomUrl?: string;
+  // Editable EV Charging Tariff Rate (default Rp 1.699 / kWh)
+  plnTariffPerKwh?: number;
 }
 

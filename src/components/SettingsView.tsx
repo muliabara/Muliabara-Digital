@@ -123,6 +123,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [heroDocNumber, setHeroDocNumber] = useState<string>(settings.heroDocNumber || 'F-QHSE-OPS-MOB-09');
   const [heroMainTitle, setHeroMainTitle] = useState<string>(settings.heroMainTitle || 'JAC T9 EV 4x4 Double Cabin · Smart Fleet Management');
   const [heroDescription, setHeroDescription] = useState<string>(settings.heroDescription || 'Sistem pemeriksaan harian terpadu unit Light Vehicle Electric Vehicle dengan verifikasi multi-peran (Master Admin, Pengawas, Driver). Memantau langsung kondisi skid plate pelindung baterai, sistem tegangan tinggi 350V, insulasi soket CCS2, dan efisiensi konsumsi kWh di site tambang Kutai.');
+  
+  // PLN Tariff State (Editable)
+  const [plnTariffPerKwh, setPlnTariffPerKwh] = useState<number>(settings.plnTariffPerKwh || 1699);
 
   // Synchronize internal state whenever settings change via Firestore real-time sync
   useEffect(() => {
@@ -146,6 +149,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (settings.heroDocNumber) setHeroDocNumber(settings.heroDocNumber);
       if (settings.heroMainTitle) setHeroMainTitle(settings.heroMainTitle);
       if (settings.heroDescription) setHeroDescription(settings.heroDescription);
+      if (settings.plnTariffPerKwh !== undefined) setPlnTariffPerKwh(settings.plnTariffPerKwh);
     }
   }, [settings]);
 
@@ -232,7 +236,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       heroSubTitle,
       heroDocNumber,
       heroMainTitle,
-      heroDescription
+      heroDescription,
+      plnTariffPerKwh
     };
 
     onUpdateSettings(updated);
@@ -261,7 +266,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       heroSubTitle: 'PT MULIABARA MINING · SISTEM K3 EV',
       heroDocNumber: 'F-QHSE-OPS-MOB-09',
       heroMainTitle: 'JAC T9 EV 4x4 Double Cabin · Smart Fleet Management',
-      heroDescription: 'Sistem pemeriksaan harian terpadu unit Light Vehicle Electric Vehicle dengan verifikasi multi-peran (Master Admin, Pengawas, Driver). Memantau langsung kondisi skid plate pelindung baterai, sistem tegangan tinggi 350V, insulasi soket CCS2, dan efisiensi konsumsi kWh di site tambang Kutai.'
+      heroDescription: 'Sistem pemeriksaan harian terpadu unit Light Vehicle Electric Vehicle dengan verifikasi multi-peran (Master Admin, Pengawas, Driver). Memantau langsung kondisi skid plate pelindung baterai, sistem tegangan tinggi 350V, insulasi soket CCS2, dan efisiensi konsumsi kWh di site tambang Kutai.',
+      plnTariffPerKwh: 1699
     };
 
     setPrimaryColor(defaults.primaryColor);
@@ -628,6 +634,55 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 placeholder="JAC T9 EV"
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-bold"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION: TARIF CHARGING EV (PLN / SPKLU) */}
+        <div className={`${glassCard} p-6 space-y-4`}>
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              <h2 className="text-sm font-bold text-slate-900">
+                Pengaturan Tarif Listrik EV Charging (PLN / SPKLU)
+              </h2>
+            </div>
+            <span className="text-[10px] text-amber-700 bg-amber-50 font-mono font-bold px-2 py-0.5 rounded border border-amber-200">
+              Biaya per kWh
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block font-bold text-slate-800 mb-1">
+                Tarif Listrik Dasar (Rp / kWh)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-2.5 font-bold text-slate-400">Rp</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={plnTariffPerKwh}
+                  onChange={e => setPlnTariffPerKwh(Number(e.target.value))}
+                  placeholder="1699"
+                  className="w-full pl-10 pr-16 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-mono font-bold text-sm focus:bg-white focus:ring-2 focus:ring-amber-500"
+                />
+                <span className="absolute right-3 top-2.5 font-bold text-slate-500 text-xs">/ kWh</span>
+              </div>
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Tarif acuan untuk estimasi biaya pengisian baterai (misal: Tarif Rumah Rp 1.699/kWh, SPKLU Rp 2.475/kWh, dll).
+              </span>
+            </div>
+
+            <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 flex flex-col justify-center space-y-1">
+              <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Prakiraan Simulasi Charger (Full Pack 88.02 kWh):</span>
+              <span className="text-base font-black font-mono text-amber-800">
+                Rp {Math.round(88.02 * (plnTariffPerKwh || 1699)).toLocaleString('id-ID')} <span className="text-xs font-normal text-amber-700">/ charge full</span>
+              </span>
+              <span className="text-[10px] text-amber-700">
+                Tarif ini otomatis digunakan sebagai nilai default pada Formulir P2H, Log EV Charging, dan Ekspor Excel.
+              </span>
             </div>
           </div>
         </div>

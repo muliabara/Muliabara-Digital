@@ -79,7 +79,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   loginBarcodeTitle: 'Scan Barcode untuk Masuk Halaman Login P2H',
   loginBarcodeSubtitle: 'Arahkan kamera smartphone ke kode QR ini untuk langsung membuka formulir login pemeriksaan harian JAC T9 EV di site tambang.',
   loginBarcodeFooter: 'JAC T9 EV 4x4 Double Cabin · Unit Fleet Operasional Tambang Kutai',
-  loginBarcodeCustomUrl: ''
+  loginBarcodeCustomUrl: '',
+  plnTariffPerKwh: 1699
 };
 
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
@@ -1195,6 +1196,7 @@ export default function App() {
               initialForm={editingForm}
               currentUser={activeUser}
               allUsers={allUsers}
+              settings={settings}
               onSave={handleSaveP2H}
               onCancel={() => {
                 setEditingForm(null);

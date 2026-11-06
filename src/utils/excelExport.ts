@@ -87,7 +87,7 @@ export function exportP2HLogToExcel(records: P2HFormRecord[], filename?: string)
 /**
  * Export EV charging log sessions to native Microsoft Excel (.xlsx) file
  */
-export function exportChargingLogToExcel(sessions: any[], filename?: string) {
+export function exportChargingLogToExcel(sessions: any[], activeTariff: number = 1699, filename?: string) {
   const data = sessions.map(s => ({
     'ID Form': s.id,
     'Tanggal Sesi': s.date,
@@ -98,7 +98,7 @@ export function exportChargingLogToExcel(sessions: any[], filename?: string) {
     'Persentase Charging (%)': s.percentCharged,
     'Daya Terisi (kWh)': s.energyAddedKwh,
     'Estimasi Penambahan Jarak (KM)': s.estimatedRangeKm,
-    'Estimasi Biaya PLN (Rp)': Math.round(s.energyAddedKwh * 2475),
+    'Estimasi Biaya PLN (Rp)': Math.round(s.energyAddedKwh * activeTariff),
     'Lokasi SPKLU / Charging Station': s.chargingLocation
   }));
 
