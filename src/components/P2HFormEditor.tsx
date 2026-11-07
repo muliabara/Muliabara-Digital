@@ -55,9 +55,9 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   onCancel
 }) => {
   const safeUser = (currentUser && currentUser.name) ? currentUser : {
-    id: 'user_4',
-    name: 'Ir. Bambang Wijaya',
-    nik: 'MGR-1002',
+    id: 'user_admin',
+    name: 'Admin Operations',
+    nik: 'ADM-001',
     role: 'admin' as const,
     department: 'QHSE & Fleet Asset Management',
     idCardExpiry: '2027-12-31',

@@ -127,6 +127,21 @@ export default function App() {
     return saved ? saved : INITIAL_MAINTENANCE_LOGS;
   });
 
+  // Helper to detect and filter out legacy dummy accounts
+  const isOldDummyUser = (u: any): boolean => {
+    if (!u) return false;
+    const name = String(u.name || '');
+    const nik = String(u.nik || '');
+    const email = String(u.email || '');
+    return (
+      name.includes('Bambang Wijaya') ||
+      name.includes('Budi Santoso') ||
+      name.includes('Suryadi Pratama') ||
+      ['MGR-1002', 'OP-7821', 'FRM-2045', 'OPR-8821', 'OPR-9042'].includes(nik) ||
+      email.includes('sunmobility.com')
+    );
+  };
+
   // Fallback Admin Account
   const DEFAULT_ADMIN_USER: UserProfile = INITIAL_ACCOUNTS[0];
 
@@ -136,7 +151,7 @@ export default function App() {
       const parsed = getCompressed(STORAGE_KEYS.USERS);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const validUsers = parsed
-          .filter((u): u is UserProfile => Boolean(u && typeof u === 'object' && u.id))
+          .filter((u): u is UserProfile => Boolean(u && typeof u === 'object' && u.id && !isOldDummyUser(u)))
           .map(u => ({
             ...u,
             role: u.role || 'operator',
@@ -155,7 +170,7 @@ export default function App() {
     try {
       const activeId = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID);
       const parsed = getCompressed(STORAGE_KEYS.CURRENT_USER);
-      if (parsed && typeof parsed === 'object' && parsed.id && parsed.role) {
+      if (parsed && typeof parsed === 'object' && parsed.id && parsed.role && !isOldDummyUser(parsed)) {
         return {
           ...parsed,
           role: parsed.role || 'operator',

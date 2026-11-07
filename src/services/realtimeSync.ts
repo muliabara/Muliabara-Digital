@@ -224,14 +224,28 @@ class RealtimeSyncManager {
           this.isConnected = true;
           const users: UserProfile[] = [];
 
+          const isDummy = (u: UserProfile) => {
+            if (!u) return false;
+            const name = String(u.name || '');
+            const nik = String(u.nik || '');
+            const email = String(u.email || '');
+            return (
+              name.includes('Bambang Wijaya') ||
+              name.includes('Budi Santoso') ||
+              name.includes('Suryadi Pratama') ||
+              ['MGR-1002', 'OP-7821', 'FRM-2045'].includes(nik) ||
+              email.includes('sunmobility.com')
+            );
+          };
+
           snapshot.forEach(docSnap => {
             const data = docSnap.data() as UserProfile;
-            if (data && data.id) {
+            if (data && data.id && !isDummy(data)) {
               users.push(data);
             }
           });
 
-          if (snapshot.empty) {
+          if (users.length === 0) {
             this.seedInitialUsers();
             this.cachedUsers = INITIAL_ACCOUNTS;
             this.notifyListeners({ users: INITIAL_ACCOUNTS });

@@ -54,8 +54,8 @@ export const ApprovalQueueModal: React.FC<ApprovalQueueModalProps> = ({
   // Foreman State
   const [foremanDecision, setForemanDecision] = useState<'approved' | 'rejected'>('approved');
   const [foremanNotes, setForemanNotes] = useState(form.foremanApproval.notes || 'Unit dinyatakan aman dan laik operasi untuk shift ini.');
-  const [foremanName, setForemanName] = useState(form.foremanApproval.foremanName || 'Suryadi Pratama');
-  const [foremanNik, setForemanNik] = useState(form.foremanApproval.foremanNik || 'FRM-2045');
+  const [foremanName, setForemanName] = useState(form.foremanApproval.foremanName || 'Pengawas Lapangan');
+  const [foremanNik, setForemanNik] = useState(form.foremanApproval.foremanNik || 'SPV-001');
   const [foremanSignature, setForemanSignature] = useState<string | undefined>(
     form.foremanApproval.signatureUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M15,45 Q60,15 95,50 T160,25 T195,55" fill="none" stroke="%230f172a" stroke-width="3"/></svg>'
   );
