@@ -723,7 +723,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                       <td className="py-3 px-3 text-center font-mono">
                         <span className="font-bold text-slate-700 block">+{eff.totalKm} KM</span>
-                        <span className="text-[10px] text-slate-400">{rec.startSoc}% → {rec.endSoc}%</span>
+                        <span className="text-[10px] text-slate-400">{rec.startSoc ?? 0}% → {rec.endSoc ?? 0}%</span>
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono">

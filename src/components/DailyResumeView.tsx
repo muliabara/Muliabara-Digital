@@ -363,9 +363,9 @@ export const DailyResumeView: React.FC<DailyResumeViewProps> = ({
 
                       <td className="py-3.5 px-3 text-center">
                         <div className="font-mono text-xs">
-                          <span className="text-slate-700">{record.startSoc}%</span>
+                          <span className="text-slate-700">{record.startSoc ?? 0}%</span>
                           <span className="text-slate-400 mx-1">→</span>
-                          <span className="text-slate-900 font-bold">{record.endSoc}%</span>
+                          <span className="text-slate-900 font-bold">{record.endSoc ?? 0}%</span>
                         </div>
                         <span className="text-[10px] text-amber-600 font-semibold block">
                           Terpakai {record.batteryUsedPercent}%

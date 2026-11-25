@@ -80,11 +80,55 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   const [unitNumber, setUnitNumber] = useState(initialForm?.unitNumber || (vehicles[0]?.unitNumber || 'LV-EV-01'));
   const [skoExpiryDate, setSkoExpiryDate] = useState(initialForm?.skoExpiryDate || '2026-12-15');
 
-  // Requirement 4: Telemetri odometer dimulai dari angka 0 untuk diisi manual oleh Driver (Gambar 4)
-  const [startKm, setStartKm] = useState<number>(initialForm?.startKm ?? 0);
-  const [endKm, setEndKm] = useState<number>(initialForm?.endKm ?? 0);
-  const [startSoc, setStartSoc] = useState<number>(initialForm?.startSoc ?? 0);
-  const [endSoc, setEndSoc] = useState<number>(initialForm?.endSoc ?? 0);
+  // Numeric input string states (prevents mouse-wheel reset, comma wipeout, and hidden '0')
+  const sanitizeNumericString = (raw: string, allowDecimal: boolean): string => {
+    let cleaned = raw.replace(/%/g, '').replace(/\s+/g, '').replace(/,/g, '.');
+    if (!allowDecimal) {
+      cleaned = cleaned.replace(/[^0-9]/g, '');
+      return cleaned;
+    }
+    cleaned = cleaned.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+    }
+    return cleaned;
+  };
+
+  const clampNumber = (raw: string, min: number, max?: number): number => {
+    if (raw.trim() === '' || raw === '.') return 0;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 0;
+    const lowerBounded = Math.max(min, parsed);
+    return max !== undefined ? Math.min(max, lowerBounded) : lowerBounded;
+  };
+
+  const [startKmInput, setStartKmInput] = useState<string>(
+    initialForm?.startKm !== undefined && initialForm?.startKm !== null && initialForm.startKm !== 0
+      ? String(initialForm.startKm)
+      : (initialForm ? '0' : '')
+  );
+  const [endKmInput, setEndKmInput] = useState<string>(
+    initialForm?.endKm !== undefined && initialForm?.endKm !== null && initialForm.endKm !== 0
+      ? String(initialForm.endKm)
+      : (initialForm ? '0' : '')
+  );
+  const [startSocInput, setStartSocInput] = useState<string>(
+    initialForm?.startSoc !== undefined && initialForm?.startSoc !== null
+      ? String(initialForm.startSoc)
+      : ''
+  );
+  const [endSocInput, setEndSocInput] = useState<string>(
+    initialForm?.endSoc !== undefined && initialForm?.endSoc !== null
+      ? String(initialForm.endSoc)
+      : ''
+  );
+
+  const startKm = useMemo(() => clampNumber(startKmInput, 0), [startKmInput]);
+  const endKm = useMemo(() => clampNumber(endKmInput, 0), [endKmInput]);
+  const startSoc = useMemo(() => clampNumber(startSocInput, 0, 100), [startSocInput]);
+  const endSoc = useMemo(() => clampNumber(endSocInput, 0, 100), [endSocInput]);
+  const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const batteryCapacityKwh = 88.02; // CATL LFP JAC T9 EV pack
 
   // Driver Condition State (Section A) - Bound to logged-in user
@@ -97,14 +141,22 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
   
   // Auto-sync form when user changes or on mount (Requirement 1)
   useEffect(() => {
-    if (!initialForm && safeUser) {
+    if (!initialForm) {
       setOperatorName(safeUser.name);
       setOperatorNik(safeUser.nik);
       if (safeUser.idCardExpiry) setIdCardExpiry(safeUser.idCardExpiry);
       if (safeUser.simperExpiry) setSimperExpiry(safeUser.simperExpiry);
       if (safeUser.signatureDataUrl) setSignatureUrl(safeUser.signatureDataUrl);
     }
-  }, [safeUser, initialForm]);
+  }, [
+    safeUser.id,
+    safeUser.name,
+    safeUser.nik,
+    safeUser.idCardExpiry,
+    safeUser.simperExpiry,
+    safeUser.signatureDataUrl,
+    initialForm
+  ]);
 
   const [driverItems, setDriverItems] = useState<Record<string, DriverStatus>>(() => {
     if (initialForm?.driverCondition?.items) return initialForm.driverCondition.items;
@@ -361,7 +413,32 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
     }
   };
 
+  const isOperatorRegistered = useMemo(() => {
+    const cleanName = (operatorName || '').trim().toLowerCase();
+    const cleanNik = (operatorNik || '').trim().toLowerCase();
+    return (allUsers || []).some(
+      u => u && ((cleanName && (u.name || '').trim().toLowerCase() === cleanName) || (cleanNik && (u.nik || '').trim().toLowerCase() === cleanNik))
+    );
+  }, [allUsers, operatorName, operatorNik]);
+
+  const handleOperatorNameChange = (val: string) => {
+    setOperatorName(val);
+    const matched = (allUsers || []).find(
+      u => u && (u.name || '').trim().toLowerCase() === val.trim().toLowerCase()
+    );
+    if (matched) {
+      setOperatorNik(matched.nik);
+    }
+  };
+
   const handleSaveForm = (targetStatus?: 'draft' | 'pending_approval' | 'approved') => {
+    setFormValidationError(null);
+
+    if (targetStatus !== 'draft' && startSocInput.trim() !== '' && endSocInput.trim() === '') {
+      setFormValidationError('SOC Awal sudah diisi, mohon lengkapi SOC Akhir (%) sebelum mengajukan Form P2H (isi 0 jika baterai 0%).');
+      return;
+    }
+
     const hasAbnormalCrit = criticalAbnormals.length > 0 || driverUnfitItems.length > 0;
     const hasAbnormalNonCrit = nonCriticalAbnormals.length > 0;
 
@@ -494,13 +571,26 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-xs">
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Nama Operator</label>
+            <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between gap-1">
+              <span>Nama Operator</span>
+              {operatorName.trim() && !isOperatorRegistered && (
+                <span className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                  Belum di daftar akun
+                </span>
+              )}
+            </label>
             <input
               type="text"
+              list="registered-operators-list"
               value={operatorName}
-              onChange={e => setOperatorName(e.target.value)}
+              onChange={e => handleOperatorNameChange(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900 font-semibold"
             />
+            <datalist id="registered-operators-list">
+              {(allUsers || []).map(u => (
+                <option key={u.id} value={u.name}>{u.nik} · {u.role}</option>
+              ))}
+            </datalist>
           </div>
 
           <div>
@@ -615,10 +705,10 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
             </label>
             <div className="relative">
               <input
-                type="number"
-                min="0"
-                value={startKm === 0 ? '' : startKm}
-                onChange={e => setStartKm(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                type="text"
+                inputMode="decimal"
+                value={startKmInput}
+                onChange={e => setStartKmInput(sanitizeNumericString(e.target.value, true))}
                 placeholder="0"
                 className="w-full px-2.5 py-1.5 text-sm sm:text-base font-mono font-bold text-slate-900 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
               />
@@ -632,10 +722,10 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
             </label>
             <div className="relative">
               <input
-                type="number"
-                min="0"
-                value={endKm === 0 ? '' : endKm}
-                onChange={e => setEndKm(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                type="text"
+                inputMode="decimal"
+                value={endKmInput}
+                onChange={e => setEndKmInput(sanitizeNumericString(e.target.value, true))}
                 placeholder="0"
                 className="w-full px-2.5 py-1.5 text-sm sm:text-base font-mono font-bold text-slate-900 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
               />
@@ -649,33 +739,64 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
               <Battery className="w-3.5 h-3.5 text-sky-600" />
             </label>
             <input
-              type="number"
-              min="0"
-              max="100"
-              value={startSoc === 0 ? '' : startSoc}
-              onChange={e => setStartSoc(e.target.value === '' ? 0 : Math.min(100, Math.max(0, Number(e.target.value))))}
+              type="text"
+              inputMode="decimal"
+              value={startSocInput}
+              onChange={e => {
+                const cleaned = sanitizeNumericString(e.target.value, true);
+                if (cleaned !== '' && Number(cleaned) > 100) {
+                  setStartSocInput('100');
+                } else {
+                  setStartSocInput(cleaned);
+                }
+              }}
               placeholder="0"
               className="w-full px-2.5 py-1.5 text-sm sm:text-base font-mono font-bold text-sky-900 bg-white border border-sky-200 rounded-lg focus:ring-2 focus:ring-sky-500"
             />
             <span className="text-[10px] text-sky-700 mt-1 block">Tingkat awal (0-100%)</span>
           </div>
 
-          <div className="p-3 rounded-xl bg-sky-50/50 border border-sky-100">
+          <div className={`p-3 rounded-xl border ${
+            formValidationError && endSocInput.trim() === ''
+              ? 'bg-rose-50/70 border-rose-300'
+              : 'bg-sky-50/50 border-sky-100'
+          }`}>
             <label className="block text-[11px] font-bold text-sky-950 mb-1 flex items-center justify-between">
               <span>SOC Akhir (%)</span>
               <Battery className="w-3.5 h-3.5 text-sky-600" />
             </label>
             <input
-              type="number"
-              min="0"
-              max="100"
-              value={endSoc === 0 ? '' : endSoc}
-              onChange={e => setEndSoc(e.target.value === '' ? 0 : Math.min(100, Math.max(0, Number(e.target.value))))}
+              type="text"
+              inputMode="decimal"
+              value={endSocInput}
+              onChange={e => {
+                setFormValidationError(null);
+                const cleaned = sanitizeNumericString(e.target.value, true);
+                if (cleaned !== '' && Number(cleaned) > 100) {
+                  setEndSocInput('100');
+                } else {
+                  setEndSocInput(cleaned);
+                }
+              }}
               placeholder="0"
-              className="w-full px-2.5 py-1.5 text-sm sm:text-base font-mono font-bold text-sky-900 bg-white border border-sky-200 rounded-lg focus:ring-2 focus:ring-sky-500"
+              className={`w-full px-2.5 py-1.5 text-sm sm:text-base font-mono font-bold text-sky-900 bg-white border rounded-lg focus:ring-2 ${
+                formValidationError && endSocInput.trim() === ''
+                  ? 'border-rose-400 focus:ring-rose-500'
+                  : 'border-sky-200 focus:ring-sky-500'
+              }`}
             />
-            <span className={`text-[10px] mt-1 block font-medium ${endSoc > 0 && endSoc < 20 ? 'text-rose-600 font-bold' : 'text-sky-700'}`}>
-              {endSoc > 0 && endSoc < 20 ? 'Wajib charge!' : 'Tingkat akhir (0-100%)'}
+            <span className={`text-[10px] mt-1 block font-medium ${
+              formValidationError && endSocInput.trim() === ''
+                ? 'text-rose-600 font-bold'
+                : endSocInput !== '' && endSoc < 20
+                ? 'text-rose-600 font-bold'
+                : 'text-sky-700'
+            }`}>
+              {formValidationError && endSocInput.trim() === ''
+                ? 'Wajib diisi sebelum kirim!'
+                : endSocInput !== '' && endSoc < 20
+                ? 'Wajib charge!'
+                : 'Tingkat akhir (0-100%)'}
             </span>
           </div>
         </div>
@@ -1751,6 +1872,13 @@ export const P2HFormEditor: React.FC<P2HFormEditorProps> = ({
             </button>
           </div>
         </div>
+
+        {formValidationError && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{formValidationError}</span>
+          </div>
+        )}
 
         {/* BOTTOM SAVE BAR */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-100">

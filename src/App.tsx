@@ -24,7 +24,7 @@ import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
 import { ChargingLogView } from './components/ChargingLogView';
 import { DamageFindingsView } from './components/DamageFindingsView';
-import { realtimeSync, API_BASE_URL } from './services/realtimeSync';
+import { realtimeSync, API_BASE_URL, isLegacyDummyRecord } from './services/realtimeSync';
 import { 
   ClipboardList, 
   FileText, 
@@ -111,14 +111,19 @@ export default function App() {
   const [p2hRecords, setP2hRecords] = useState<P2HFormRecord[]>(() => {
     try {
       const saved = getCompressed(STORAGE_KEYS.RECORDS);
-      const parsed = saved ? saved : INITIAL_P2H_RECORDS;
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return Array.from(new Map(parsed.map(r => [r.id, r])).values());
+      if (Array.isArray(saved)) {
+        return Array.from(
+          new Map(
+            saved
+              .filter((r): r is P2HFormRecord => Boolean(r && r.id && !isLegacyDummyRecord(r)))
+              .map(r => [r.id, r])
+          ).values()
+        );
       }
     } catch {
       // fallback
     }
-    return INITIAL_P2H_RECORDS;
+    return [];
   });
 
   // Maintenance Logs State
@@ -249,22 +254,33 @@ export default function App() {
       if (Array.isArray(payload.records)) {
         setP2hRecords(prev => {
           if (payload.action === 'delete_all_records') return [];
-          
-          let base = prev;
+
+          if (payload.action === 'sync_full') {
+            const cleanRemote = payload.records!.filter(
+              (r): r is P2HFormRecord => Boolean(r && r.id && !isLegacyDummyRecord(r))
+            );
+            cleanRemote.sort((a, b) => {
+              const dateA = a.date || a.createdAt || '';
+              const dateB = b.date || b.createdAt || '';
+              return dateB.localeCompare(dateA);
+            });
+            return cleanRemote;
+          }
+
+          let base = prev.filter(r => r && r.id && !isLegacyDummyRecord(r));
           if (payload.action === 'delete_record' && payload.targetId) {
             base = base.filter(r => r.id !== payload.targetId);
           }
-          
+
           if (payload.records!.length === 0) {
-            if (base.length > 0) {
-              return base;
-            }
-            return [];
+            return base;
           }
 
           const recordMap = new Map<string, P2HFormRecord>();
           base.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
-          payload.records!.forEach(r => { if (r && r.id) recordMap.set(r.id, r); });
+          payload.records!.forEach(r => {
+            if (r && r.id && !isLegacyDummyRecord(r)) recordMap.set(r.id, r);
+          });
 
           const merged = Array.from(recordMap.values());
           merged.sort((a, b) => {
@@ -371,39 +387,33 @@ export default function App() {
 
   // Handler: Save or Update P2H Form
   const handleSaveP2H = (savedForm: P2HFormRecord) => {
-    let updatedRecords: P2HFormRecord[] = [];
     setP2hRecords(prev => {
       const exists = prev.some(r => r.id === savedForm.id);
       if (exists) {
-        updatedRecords = prev.map(r => (r.id === savedForm.id ? savedForm : r));
-      } else {
-        updatedRecords = [savedForm, ...prev];
+        return prev.map(r => (r.id === savedForm.id ? savedForm : r));
       }
-      return updatedRecords;
+      return [savedForm, ...prev];
     });
 
-    let updatedVehicles: VehicleUnit[] = [];
-    setVehicles(prevVehicles => {
-      updatedVehicles = prevVehicles.map(veh => {
-        if (veh.unitNumber === savedForm.unitNumber) {
-          return {
-            ...veh,
-            currentOdoKm: savedForm.endKm,
-            currentSoc: savedForm.endSoc,
-            cumulativeKwh: (veh.cumulativeKwh || 0) + (savedForm.energyConsumedKwh || 0),
-            assignedDriver: savedForm.operatorName,
-            location: savedForm.workLocation,
-            status: savedForm.overallStatus === 'approved' ? 'operating' : veh.status
-          };
-        }
-        return veh;
-      });
-      return updatedVehicles;
+    const nextVehicles = vehicles.map(veh => {
+      if (veh.unitNumber === savedForm.unitNumber) {
+        return {
+          ...veh,
+          currentOdoKm: savedForm.endKm,
+          currentSoc: savedForm.endSoc,
+          cumulativeKwh: (veh.cumulativeKwh || 0) + (savedForm.energyConsumedKwh || 0),
+          assignedDriver: savedForm.operatorName,
+          location: savedForm.workLocation,
+          status: savedForm.overallStatus === 'approved' ? 'operating' : veh.status
+        };
+      }
+      return veh;
     });
+    setVehicles(nextVehicles);
 
     const isApproved = savedForm.overallStatus === 'approved' || savedForm.foremanApproval?.status === 'approved';
 
-    let notifItemToPush: NotificationItem = {
+    const notifItemToPush: NotificationItem = {
       id: `notif_${savedForm.id}`,
       title: isApproved ? `✅ P2H ${savedForm.unitNumber} Disetujui` : `🔔 Permintaan Approval P2H (${savedForm.unitNumber})`,
       message: `Driver ${savedForm.operatorName} telah mengajukan P2H unit ${savedForm.unitNumber} (${savedForm.shift}). Status: ${isApproved ? 'Disetujui' : 'Menunggu Approval'}.`,
@@ -421,7 +431,7 @@ export default function App() {
       return [notifItemToPush, ...otherNotifs];
     });
 
-    const changedVehicle = updatedVehicles.find(v => v.unitNumber === savedForm.unitNumber);
+    const changedVehicle = nextVehicles.find(v => v.unitNumber === savedForm.unitNumber);
 
     // Realtime sync delta - pushes record and notification to Firestore so all devices receive update instantly
     realtimeSync.pushUpdate({
@@ -452,41 +462,38 @@ export default function App() {
     }
 
     const approvingAdmin = activeUser;
-    let updatedRecords: P2HFormRecord[] = [];
+    let approvedRecord: P2HFormRecord | null = null;
 
-    setP2hRecords(prev => {
-      updatedRecords = prev.map(r => {
-        if (r.id === formId) {
-          return {
-            ...r,
-            updatedAt: new Date().toISOString(),
-            overallStatus: 'approved' as const,
-            foremanApproval: {
-              status: 'approved' as const,
-              notes: r.foremanApproval?.notes || 'Disetujui resmi melalui Lonceng Pemberitahuan K3.',
-              foremanName: approvingAdmin.name,
-              foremanNik: approvingAdmin.nik,
-              signatureUrl: approvingAdmin.signatureDataUrl || r.foremanApproval?.signatureUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M15,45 Q60,15 95,50 T160,25 T195,55" fill="none" stroke="%230f172a" stroke-width="3"/></svg>',
-              approvedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA'
-            }
-          };
-        }
-        return r;
-      });
-      return updatedRecords;
+    const nextRecords = p2hRecords.map(r => {
+      if (r.id === formId) {
+        approvedRecord = {
+          ...r,
+          updatedAt: new Date().toISOString(),
+          overallStatus: 'approved' as const,
+          foremanApproval: {
+            status: 'approved' as const,
+            notes: r.foremanApproval?.notes || 'Disetujui resmi melalui Lonceng Pemberitahuan K3.',
+            foremanName: approvingAdmin.name,
+            foremanNik: approvingAdmin.nik,
+            signatureUrl: approvingAdmin.signatureDataUrl || r.foremanApproval?.signatureUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M15,45 Q60,15 95,50 T160,25 T195,55" fill="none" stroke="%230f172a" stroke-width="3"/></svg>',
+            approvedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA'
+          }
+        };
+        return approvedRecord;
+      }
+      return r;
     });
+    setP2hRecords(nextRecords);
 
-    let idsToDelete: string[] = [];
-    setNotifications(prev => {
-      const targets = prev.filter(n => n.id === notifId || (n.formId && n.formId === formId));
-      idsToDelete = targets.map(t => t.id);
-      return prev.filter(n => !idsToDelete.includes(n.id));
-    });
+    const idsToDelete = notifications
+      .filter(n => n.id === notifId || (n.formId && n.formId === formId))
+      .map(t => t.id);
+    setNotifications(prev => prev.filter(n => !idsToDelete.includes(n.id)));
 
     realtimeSync.pushUpdate({
-      records: updatedRecords,
-      action: 'delete_notification',
-      targetId: idsToDelete
+      records: approvedRecord ? [approvedRecord] : undefined,
+      action: idsToDelete.length > 0 ? 'delete_notification' : undefined,
+      targetId: idsToDelete.length > 0 ? idsToDelete : undefined
     });
 
     playSuccessChime();
@@ -1207,6 +1214,7 @@ export default function App() {
           {/* 1. HALAMAN P2H */}
           {activeNav === 'p2h' && (
             <P2HFormEditor
+              key={editingForm?.id || 'new-p2h-form'}
               vehicles={vehicles}
               initialForm={editingForm}
               currentUser={activeUser}

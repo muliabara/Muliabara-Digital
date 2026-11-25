@@ -92,37 +92,41 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
       'Status P2H'
     ];
 
+    const sampleOpName = currentUser?.name || 'Nama Operator';
+    const sampleOpNik = currentUser?.nik || 'NIK-001';
+    const sampleUnit = vehicles[0]?.unitNumber || 'LV-EV-01';
+
     const sampleRow1 = [
       '2026-11-04',
       'Shift 1 (Siang)',
-      'LV-EV-01',
+      sampleUnit,
       'JAC T9 EV 4x4 Double Cabin',
-      'Driver Operator',
-      'DRV-001',
+      sampleOpName,
+      sampleOpNik,
       '12400',
       '12480',
       '100',
       '82',
       '80',
       '70.42',
-      'Pit Utara - Mining Sector A',
+      'Samarinda',
       'approved'
     ];
 
     const sampleRow2 = [
       '2026-11-04',
       'Shift 2 (Malam)',
-      'LV-EV-02',
+      vehicles[1]?.unitNumber || sampleUnit,
       'JAC T9 EV 4x4 Double Cabin',
-      'Ahmad Fauzi',
-      'OPR-8822',
+      sampleOpName,
+      sampleOpNik,
       '5120',
       '5200',
-      '94',
-      '78',
-      '0',
-      '0',
-      'Central Workshop - Main Yard',
+      '84',
+      '98',
+      '15',
+      '13.2',
+      'Kotabangun',
       'pending_approval'
     ];
 
@@ -154,11 +158,19 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
     setImportError(null);
     setParsedImportRecords([]);
 
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const cleanedText = text.replace(/^\uFEFF/, '');
+    const lines = cleanedText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length < 2) {
       setImportError('File CSV tidak memiliki baris data (minimal 1 baris header dan 1 baris data).');
       return;
     }
+
+    // Auto-detect CSV delimiter (comma, semicolon, or tab)
+    const firstLine = lines[0];
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const semiCount = (firstLine.match(/;/g) || []).length;
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+    const delimiter = semiCount > commaCount && semiCount >= tabCount ? ';' : tabCount > commaCount ? '\t' : ',';
 
     const parseLine = (line: string): string[] => {
       const result: string[] = [];
@@ -166,9 +178,9 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
       let inQuotes = false;
       for (let i = 0; i < line.length; i++) {
         const char = line[i];
-        if (char === '"' || char === "'") {
+        if (char === '"') {
           inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
+        } else if (char === delimiter && !inQuotes) {
           result.push(cur.trim());
           cur = '';
         } else {
@@ -176,7 +188,15 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
         }
       }
       result.push(cur.trim());
-      return result.map(s => s.replace(/^["']|["']$/g, ''));
+      return result.map(s => s.replace(/^["']|["']$/g, '').trim());
+    };
+
+    const parseNum = (rawVal: string | undefined, fallback: number): number => {
+      if (rawVal === undefined || rawVal === null) return fallback;
+      const cleaned = String(rawVal).replace(/%/g, '').replace(/\s+/g, '').replace(/,/g, '.');
+      if (cleaned === '') return fallback;
+      const num = Number(cleaned);
+      return Number.isFinite(num) ? num : fallback;
     };
 
     const header = parseLine(lines[0]).map(h => h.toLowerCase());
@@ -199,7 +219,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
     const chargingPercentIdx = findIdx(['charging terisi (%)', 'charging %', 'cas %'], 10);
     const chargingKwhIdx = findIdx(['charging terisi (kwh)', 'charging kwh', 'cas kwh'], 11);
     const locationIdx = findIdx(['lokasi', 'worksite', 'site'], 12);
-    const statusIdx = findIdx(['status'], 13);
+    const statusIdx = findIdx(['status p2h', 'status'], 13);
 
     const newRecords: P2HFormRecord[] = [];
 
@@ -213,29 +233,27 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
         ? 'Shift 2 (Malam)' 
         : 'Shift 1 (Siang)';
 
-      const unitNumber = row[unitIdx] || 'LV-EV-01';
+      const unitNumber = row[unitIdx] || (vehicles[0]?.unitNumber || 'LV-EV-01');
       const unitModel = row[modelIdx] || 'JAC T9 EV 4x4 Double Cabin';
-      const operatorName = row[operatorIdx] || 'Operator Tambang';
-      const operatorNik = row[nikIdx] || `OPR-${Math.floor(1000 + Math.random() * 9000)}`;
+      const operatorName = row[operatorIdx] || currentUser?.name || 'Operator';
+      const operatorNik = row[nikIdx] || currentUser?.nik || '-';
       
-      const startKm = Math.max(0, parseInt(row[startKmIdx], 10) || 1000);
-      const endKm = Math.max(startKm, parseInt(row[endKmIdx], 10) || (startKm + 45));
-      const totalKm = endKm - startKm;
+      const startKm = Math.max(0, parseNum(row[startKmIdx], 0));
+      const endKm = Math.max(startKm, parseNum(row[endKmIdx], startKm));
+      const totalKm = Math.max(0, endKm - startKm);
 
-      const startSoc = Math.min(100, Math.max(0, parseInt(row[startSocIdx], 10) || 100));
-      const endSoc = Math.min(startSoc, Math.max(0, parseInt(row[endSocIdx], 10) || 82));
-      const batteryUsedPercent = Math.max(0, startSoc - endSoc);
-      const energyConsumedKwh = Number(((batteryUsedPercent / 100) * 88.02).toFixed(2));
-      const consumptionRateKwhPerKm = totalKm > 0 ? Number((energyConsumedKwh / totalKm).toFixed(2)) : 0;
+      const startSoc = Math.min(100, Math.max(0, parseNum(row[startSocIdx], 0)));
+      const endSoc = Math.min(100, Math.max(0, parseNum(row[endSocIdx], 0)));
 
-      const percentCharged = Math.min(100, Math.max(0, parseInt(row[chargingPercentIdx], 10) || 0));
-      const energyAddedKwh = parseFloat(row[chargingKwhIdx]) || Number(((percentCharged / 100) * 88.02).toFixed(2));
+      const percentCharged = Math.min(100, Math.max(0, parseNum(row[chargingPercentIdx], 0)));
+      const rawChargingKwh = parseNum(row[chargingKwhIdx], -1);
+      const energyAddedKwh = rawChargingKwh >= 0 ? rawChargingKwh : Number(((percentCharged / 100) * 88.02).toFixed(2));
 
-      const workLocation = row[locationIdx] || 'Pit Utama Tambang Kutai';
+      const workLocation = row[locationIdx] || '-';
       const rawStatus = (row[statusIdx] || '').toLowerCase();
 
       let overallStatus: P2HFormRecord['overallStatus'] = 'approved';
-      if (rawStatus.includes('pending') || rawStatus.includes('menunggu')) {
+      if (rawStatus.includes('pending') || rawStatus.includes('menunggu') || rawStatus.includes('review')) {
         overallStatus = 'pending_approval';
       } else if (rawStatus.includes('mekanik') || rawStatus.includes('maintenance')) {
         overallStatus = 'needs_maintenance';
@@ -246,7 +264,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
       const recId = `p2h-imp-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
       const nowIso = new Date().toISOString();
 
-      const record: P2HFormRecord = {
+      const baseRecord: P2HFormRecord = {
         id: recId,
         docNumber: 'F-QHSE-OPS-MOB-09',
         createdAt: nowIso,
@@ -267,15 +285,15 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
         startSoc,
         endSoc,
         batteryCapacityKwh: 88.02,
-        batteryUsedPercent,
-        energyConsumedKwh,
-        consumptionRateKwhPerKm,
+        batteryUsedPercent: 0,
+        energyConsumedKwh: 0,
+        consumptionRateKwhPerKm: 0,
         costSavingsIdr: Math.round(totalKm * 2300),
         co2ReductionKg: Number((totalKm * 0.175).toFixed(2)),
         charging: {
           percentCharged,
           energyAddedKwh,
-          estimatedRangeKm: Math.round((percentCharged / 100) * 400),
+          estimatedRangeKm: Math.round((percentCharged / 100) * 330),
           chargingLocation: 'SPKLU Site Tambang'
         },
         driverCondition: {
@@ -295,14 +313,14 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
         mechanicRecommendation: {
           status: 'continue_operation',
           reason: 'Hasil impor data massal.',
-          mechanicName: 'Irwan Setiawan',
-          mechanicNik: 'MECH-004'
+          mechanicName: '',
+          mechanicNik: ''
         },
         foremanApproval: {
           status: overallStatus === 'approved' ? 'approved' : 'pending',
           notes: 'Impor Data Massal CSV',
-          foremanName: currentUser?.name || 'Foreman Tambang',
-          foremanNik: currentUser?.nik || 'SPV-101',
+          foremanName: overallStatus === 'approved' ? (currentUser?.name || '') : '',
+          foremanNik: overallStatus === 'approved' ? (currentUser?.nik || '') : '',
           approvedAt: overallStatus === 'approved' ? new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA' : undefined
         },
         operatorSignature: {
@@ -311,7 +329,12 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
         }
       };
 
-      newRecords.push(record);
+      const eff = getEffectiveRecordMetrics(baseRecord);
+      baseRecord.batteryUsedPercent = eff.batteryUsedPercent;
+      baseRecord.energyConsumedKwh = eff.energyConsumedKwh;
+      baseRecord.consumptionRateKwhPerKm = eff.consumptionRateKwhPerKm;
+
+      newRecords.push(baseRecord);
     }
 
     if (newRecords.length === 0) {
@@ -652,7 +675,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
 
                   <div>
                     <span className="text-[9px] text-slate-400 block font-medium">Baterai (SOC)</span>
-                    <span className="font-mono font-bold text-amber-600 block text-[10px]">{record.startSoc}% → {record.endSoc}%</span>
+                    <span className="font-mono font-bold text-amber-600 block text-[10px]">{record.startSoc ?? 0}% → {record.endSoc ?? 0}%</span>
                   </div>
 
                   <div>
@@ -779,7 +802,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
 
                       <td className="py-3.5 px-3 text-center">
                         <div className="font-mono text-slate-800">
-                          {record.startSoc}% → {record.endSoc}%
+                          {record.startSoc ?? 0}% → {record.endSoc ?? 0}%
                         </div>
                         <span className={`text-[10px] font-semibold block ${eff.isNetGain ? 'text-emerald-600 font-bold' : 'text-amber-600'}`}>
                           {eff.socLabel}
@@ -1110,7 +1133,7 @@ export const P2HLogView: React.FC<P2HLogViewProps> = ({
                           <td className="py-2 px-3 font-bold text-slate-900">{rec.unitNumber}</td>
                           <td className="py-2 px-3 font-sans text-slate-800">{rec.operatorName}</td>
                           <td className="py-2 px-3 text-right">{rec.startKm} → {rec.endKm}</td>
-                          <td className="py-2 px-3 text-center">{rec.startSoc}% → {rec.endSoc}%</td>
+                          <td className="py-2 px-3 text-center">{rec.startSoc ?? 0}% → {rec.endSoc ?? 0}%</td>
                           <td className="py-2 px-3 text-center text-emerald-600 font-bold">
                             {rec.charging && rec.charging.percentCharged > 0 ? `+${rec.charging.percentCharged}%` : '-'}
                           </td>

@@ -12,10 +12,28 @@ import {
   getDocs,
   Unsubscribe 
 } from 'firebase/firestore';
-import { INITIAL_VEHICLES, INITIAL_P2H_RECORDS } from '../data/initialData';
+import { INITIAL_VEHICLES } from '../data/initialData';
 import { INITIAL_ACCOUNTS } from '../components/AccountProfileView';
 import { AppSettings, P2HFormRecord, VehicleUnit, UserProfile, NotificationItem } from '../types/p2h';
 import { getCompressed } from '../utils/storage';
+
+export const isLegacyDummyRecord = (r: Partial<P2HFormRecord> | null | undefined): boolean => {
+  if (!r) return false;
+  const id = String(r.id || '');
+  const opName = String(r.operatorName || '').trim();
+  const opNik = String(r.operatorNik || '').trim();
+  if (id === 'p2h_rec_001' || id === 'p2h_rec_002') return true;
+  if (
+    opName.includes('Bambang Wijaya') ||
+    opName.includes('Budi Santoso') ||
+    opName.includes('Suryadi Pratama') ||
+    (opName === 'Rudi Hermawan' && opNik === 'OPR-9042') ||
+    ['MGR-1002', 'OP-7821', 'FRM-2045', 'OPR-8821', 'OPR-9042'].includes(opNik)
+  ) {
+    return true;
+  }
+  return false;
+};
 
 export interface SyncPayload {
   action?: 'sync_full' | 'upsert_record' | 'delete_record' | 'delete_all_records' | 'delete_vehicle' | 'update_vehicles' | 'update_users' | 'update_notifications' | 'update_settings' | 'delete_notification' | 'delete_user';
@@ -128,34 +146,45 @@ class RealtimeSyncManager {
         (snapshot) => {
           this.isConnected = true;
           const records: P2HFormRecord[] = [];
+          const dummyDocIdsToPurge: string[] = [];
 
           snapshot.forEach(docSnap => {
             const data = docSnap.data() as P2HFormRecord;
             if (data && data.id) {
-              records.push(data);
+              if (isLegacyDummyRecord(data)) {
+                dummyDocIdsToPurge.push(docSnap.id);
+              } else {
+                records.push(data);
+              }
             }
           });
 
-          // Auto-seed only once if Firestore p2h_records collection is completely empty
+          // Permanently delete legacy dummy seed records from Firestore if found
+          if (dummyDocIdsToPurge.length > 0) {
+            Promise.all(
+              dummyDocIdsToPurge.map(id => deleteDoc(doc(db, 'p2h_records', id)).catch(() => {}))
+            ).catch(() => {});
+          }
+
+          // If Firestore p2h_records collection is empty on initial load, check local cache for real records only (never seed dummy records)
           if (snapshot.empty && !this.hasReceivedInitialData) {
-            console.log('Seeding initial P2H records to Firestore...');
-            let recordsToSeed = INITIAL_P2H_RECORDS;
+            let localRealRecords: P2HFormRecord[] = [];
             try {
               const localSaved = getCompressed('jac_t9_p2h_records_v6');
               if (Array.isArray(localSaved) && localSaved.length > 0) {
-                recordsToSeed = localSaved;
+                localRealRecords = localSaved.filter(r => r && r.id && !isLegacyDummyRecord(r));
               }
             } catch {
               // fallback
             }
-            if (recordsToSeed.length > 0) {
-              this.seedInitialRecords(recordsToSeed);
+            if (localRealRecords.length > 0) {
+              this.seedInitialRecords(localRealRecords);
             }
-            this.cachedRecords = recordsToSeed;
+            this.cachedRecords = localRealRecords;
             this.hasReceivedInitialData = true;
             this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             this.updateStatus('connected');
-            this.notifyListeners({ records: recordsToSeed });
+            this.notifyListeners({ action: 'sync_full', records: localRealRecords });
             return;
           }
 
@@ -170,7 +199,7 @@ class RealtimeSyncManager {
           this.hasReceivedInitialData = true;
           this.lastSyncTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           this.updateStatus('connected');
-          this.notifyListeners({ records });
+          this.notifyListeners({ action: 'sync_full', records });
         },
         (error) => {
           console.warn('Firestore p2h_records stream error:', error);

@@ -205,7 +205,7 @@ export const OfficialPdfPrintView: React.FC<OfficialPdfPrintViewProps> = ({
           </div>
           <div>
             <span className="font-bold block text-slate-600">SOC Awal → Akhir:</span>
-            <span className="font-mono font-bold text-xs">{form.startSoc}% → {form.endSoc}%</span>
+            <span className="font-mono font-bold text-xs">{form.startSoc ?? 0}% → {form.endSoc ?? 0}%</span>
           </div>
           <div>
             <span className="font-bold block text-slate-600">% Baterai Terpakai:</span>
